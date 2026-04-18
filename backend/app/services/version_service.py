@@ -50,6 +50,7 @@ class VersionService:
 
         # 将 HTML 写入独立文件
         html_path = self._html_path(session_id, next_version)
+        html_path.parent.mkdir(parents=True, exist_ok=True)  # 确保目录存在
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html)
 
