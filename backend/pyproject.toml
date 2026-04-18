@@ -1,0 +1,23 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "fastapi>=0.136.0",
+    "langchain>=1.2.15",
+    "langchain-openai>=1.1.14",
+    "langgraph>=1.1.8",
+    "pydantic>=2.13.2",
+    "python-dotenv>=1.2.2",
+    "uvicorn[standard]>=0.44.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.1",
+    "pytest>=9.0.3",
+    "ruff>=0.15.11",
+]
