@@ -29,9 +29,12 @@ function App() {
   const {
     messages,
     isLoading,
-    thinkingSteps,
-    currentToolCall,
+    currentBlocks,
+    completedTurns,
+
     latestHtml,
+    streamingHtml,
+    latestVersion,
     sendMessage,
     stopGeneration,
   } = useSSE(sessionId);
@@ -47,7 +50,12 @@ function App() {
   useEffect(() => {
     newSession();
   }, []);
-
+  // 有 HTML 内容时自动打开预览面板
+  useEffect(() => {
+    if ((latestHtml || streamingHtml) && !previewOpen) {
+      setPreviewOpen(true);
+    }
+  }, [latestHtml, streamingHtml]);
   // SSE 完成后刷新版本列表
   useEffect(() => {
     if (!isLoading && sessionId && messages.length > 0) {
@@ -114,15 +122,18 @@ function App() {
             <ChatPanel
               messages={messages}
               isLoading={isLoading}
-              thinkingSteps={thinkingSteps}
-              currentToolCall={currentToolCall}
+              currentBlocks={currentBlocks}
+              completedTurns={completedTurns}
+              latestVersion={latestVersion}
               onSendMessage={sendMessage}
               onStopGeneration={stopGeneration}
+              onPreview={() => setPreviewOpen(true)}
             />
           }
           rightPanel={
             <PreviewPanel
               html={previewHtml}
+              streamingHtml={streamingHtml}
               isOpen={previewOpen}
               onClose={() => setPreviewOpen(false)}
             />

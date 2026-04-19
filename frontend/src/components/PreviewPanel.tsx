@@ -11,6 +11,8 @@ SyntaxHighlighter.registerLanguage("html", xml);
 interface PreviewPanelProps {
     /** HTML 内容 */
     html: string;
+    /** 流式输出的 HTML（生成过程中源码视图实时展示） */
+    streamingHtml: string;
     /** 是否展示预览面板 */
     isOpen: boolean;
     /** 关闭预览面板回调 */
@@ -33,7 +35,7 @@ const SIZE_WIDTHS: Record<ResponsiveSize, string> = {
  * 支持预览/源码切换、响应式尺寸切换、收起/展开
  * 使用 CSS display 切换避免 iframe 重复加载
  */
-export function PreviewPanel({ html, isOpen, onClose }: PreviewPanelProps) {
+export function PreviewPanel({ html, streamingHtml, isOpen, onClose }: PreviewPanelProps) {
     const [viewMode, setViewMode] = useState<"preview" | "source">("preview");
     const [size, setSize] = useState<ResponsiveSize>("desktop");
     // 新增 state 控制复制成功提示
@@ -54,7 +56,12 @@ export function PreviewPanel({ html, isOpen, onClose }: PreviewPanelProps) {
             setVisible(false);
         }
     }, [isOpen]);
-
+    // 有流式内容时自动切换到源码视图
+    useEffect(() => {
+        if (streamingHtml) {
+            setViewMode("source");
+        }
+    }, [streamingHtml]);
     /** 退出动画完成后卸载 DOM */
     const handleTransitionEnd = () => {
         if (!isOpen) setMounted(false);
@@ -80,6 +87,8 @@ export function PreviewPanel({ html, isOpen, onClose }: PreviewPanelProps) {
         a.click();
         URL.revokeObjectURL(url);
     };
+    const displayHtml = streamingHtml || html;
+
     // 未打开时不渲染
     if (!isOpen) return null;
 
@@ -182,11 +191,11 @@ export function PreviewPanel({ html, isOpen, onClose }: PreviewPanelProps) {
             {/* 内容区域 */}
             <div className="flex-1 overflow-auto bg-gray-100 p-4">
                 {/* 空值提示 */}
-                {!html || html.trim().length === 0 ? (
+                {!displayHtml || displayHtml.trim().length === 0 ? (
                     <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                         暂无预览内容
                     </div>
-                ) : html.length > 2 * 1024 * 1024 ? (
+                ) : displayHtml.length > 2 * 1024 * 1024 ? (
                     /* 超过 2MB 提示 */
                     <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                         页面内容过大，请查看源码
@@ -211,7 +220,7 @@ export function PreviewPanel({ html, isOpen, onClose }: PreviewPanelProps) {
                                         不加 allow-same-origin 防止跨沙箱通信
                                     */}
                                     <iframe
-                                        srcDoc={html}
+                                        srcDoc={displayHtml}
                                         sandbox="allow-scripts"
                                         className="w-full h-full border-0"
                                         title="页面预览"
@@ -231,7 +240,7 @@ export function PreviewPanel({ html, isOpen, onClose }: PreviewPanelProps) {
                                 className="h-full !bg-white text-xs"
                                 showLineNumbers
                             >
-                                {html}
+                                {displayHtml}
                             </SyntaxHighlighter>
                         </div>
                     </>

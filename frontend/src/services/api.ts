@@ -94,12 +94,20 @@ export function getExportUrl(sessionId: string, version?: number): string {
 
 /** SSE 事件回调接口 */
 interface SSEHandlers {
-    onThinking?: (content: string) => void;
-    onToolCall?: (tool: string, args: Record<string, unknown>) => void;
-    onToolResult?: (tool: string, result: unknown) => void;
+    onMessageStart?: () => void;
+    onReasoningChunk?: (blockId: string, content: string) => void;
+    onToolCall?: (
+        blockId: string,
+        tool: string,
+        args: Record<string, unknown>,
+    ) => void;
+    onToolResult?: (blockId: string, tool: string, result: unknown) => void;
+    onGenerationStart?: (blockId: string) => void;
+    onGenerationDone?: (blockId: string) => void;
+    onChunkDelta?: (content: string) => void;
+    onHtmlStream?: (content: string) => void;
     onHtmlUpdate?: (html: string, version: number) => void;
-    onMessage?: (content: string) => void;
-    onDone?: (version: number) => void;
+    onDone?: () => void;
     onError?: (content: string) => void;
 }
 
@@ -146,29 +154,49 @@ export function sendMessageSSE(
                             const data = JSON.parse(dataStr);
                             // 根据事件类型分发到对应回调
                             switch (currentEvent) {
-                                case "thinking":
-                                    handlers.onThinking?.(data.content);
+                                case "MESSAGE_START":
+                                    handlers.onMessageStart?.();
                                     break;
-                                case "tool_call":
-                                    handlers.onToolCall?.(data.tool, data.args);
+                                case "REASONING_CHUNK":
+                                    handlers.onReasoningChunk?.(
+                                        data.block_id,
+                                        data.content,
+                                    );
                                     break;
-                                case "tool_result":
+                                case "TOOL_CALL":
+                                    handlers.onToolCall?.(
+                                        data.block_id,
+                                        data.tool,
+                                        data.args,
+                                    );
+                                    break;
+                                case "TOOL_RESULT":
                                     handlers.onToolResult?.(
+                                        data.block_id,
                                         data.tool,
                                         data.result,
                                     );
                                     break;
-                                case "html_update":
+                                case "GENERATION_START":
+                                    handlers.onGenerationStart?.(data.block_id);
+                                    break;
+                                case "GENERATION_DONE":
+                                    handlers.onGenerationDone?.(data.block_id);
+                                    break;
+                                case "HTML_STREAM":
+                                    handlers.onHtmlStream?.(data.content);
+                                    break;
+                                case "CHUNK_DELTA":
+                                    handlers.onChunkDelta?.(data.content);
+                                    break;
+                                case "HTML_UPDATE":
                                     handlers.onHtmlUpdate?.(
                                         data.html,
                                         data.version,
                                     );
                                     break;
-                                case "message":
-                                    handlers.onMessage?.(data.content);
-                                    break;
                                 case "done":
-                                    handlers.onDone?.(data.version);
+                                    handlers.onDone?.();
                                     break;
                                 case "error":
                                     handlers.onError?.(data.content);
