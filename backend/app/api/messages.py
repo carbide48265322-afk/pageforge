@@ -6,10 +6,12 @@ from pydantic import BaseModel
 from app.graph.graph import pageforge_graph
 from app.services.session_service import SessionService
 from app.services.version_service import VersionService
+from app.checkpoint.manager import CheckpointManager
 
 router = APIRouter()
 session_service = SessionService()
 version_service = VersionService()
+checkpoint_manager = CheckpointManager()
 
 
 class MessageRequest(BaseModel):
@@ -59,6 +61,12 @@ async def event_stream(session_id: str, message: str):
         "output_html": "",
         "output_version": 0,
         "is_complete": False,
+        # 人机协作字段
+        "human_input_pending": False,
+        "human_input_checkpoint_id": None,
+        "human_input_response": None,
+        "prd_revision_count": 0,
+        "prd_internal_iteration": 0,
     }
 
     try:
@@ -191,6 +199,13 @@ async def event_stream(session_id: str, message: str):
                 if "skill_" in tool_name:
                     expecting_html = True
 
+            # ---- 人机协作检查点 ----
+            elif kind == "on_chain_end" and name == "human_input":
+                # 人机协作节点结束，发送 HUMAN_INPUT_REQUEST 事件
+                node_output = event["data"].get("output", {})
+                if node_output.get("human_input_request"):
+                    yield f"event: HUMAN_INPUT_REQUEST\ndata: {json.dumps(node_output['human_input_request'])}\n\n"
+
             # ---- 工作流结束 ----
             elif kind == "on_chain_end" and name == "LangGraph":
                 final_state = event["data"].get("output", {})
@@ -222,13 +237,145 @@ async def event_stream(session_id: str, message: str):
     except Exception as e:
         yield f"event: ERROR\ndata: {json.dumps({'content': str(e)})}\n\n"
 
+async def resume_stream(session_id: str, checkpoint_id: str, user_message: str):
+    """从检查点恢复执行 — SSE 流式响应
+    
+    当用户响应了人机协作检查点后，从检查点恢复图执行。
+    """
+    from datetime import datetime
+    
+    checkpoint = await checkpoint_manager.load(checkpoint_id)
+    if not checkpoint:
+        yield f"event: ERROR\ndata: {json.dumps({'content': 'Checkpoint not found'})}\n\n"
+        return
+    
+    # 获取用户响应
+    response = checkpoint.get("human_input_response")
+    if not response:
+        yield f"event: ERROR\ndata: {json.dumps({'content': 'No response found for checkpoint'})}\n\n"
+        return
+    
+    # 重建 State
+    state_input = {
+        "user_message": user_message,
+        "session_id": session_id,
+        "base_html": checkpoint.get("state", {}).get("base_html", ""),
+        "task_list": checkpoint.get("state", {}).get("task_list", []),
+        "current_html": checkpoint.get("state", {}).get("current_html", ""),
+        "validation_errors": [],
+        "iteration_count": 0,
+        "fix_count": 0,
+        "response_message": "",
+        "output_html": "",
+        "output_version": 0,
+        "is_complete": False,
+        # 人机协作字段 - 用户已响应，不再等待
+        "human_input_pending": False,
+        "human_input_checkpoint_id": checkpoint_id,
+        "human_input_response": response,
+        "prd_revision_count": checkpoint.get("state", {}).get("prd_revision_count", 0),
+        "prd_internal_iteration": 0,
+        # 根据用户操作设置状态
+        "requirements_approved": response.get("action") == "confirm",
+        "prd_feedback": response.get("data", {}).get("feedback", "") if response.get("action") == "revise" else "",
+    }
+    
+    # 继续执行图（从 execute 节点开始，跳过 intent 和 human_input）
+    try:
+        yield f"event: MESSAGE_START\ndata: {{}}\n\n"
+        
+        # 根据用户操作发送不同的提示
+        if response.get("action") == "confirm":
+            yield f"event: REASONING_CHUNK\ndata: {json.dumps({'block_id': 'blk_reasoning', 'block_type': 'reasoning', 'content': '\n用户已确认需求，继续执行...'})}\n\n"
+        elif response.get("action") == "revise":
+            yield f"event: REASONING_CHUNK\ndata: {json.dumps({'block_id': 'blk_reasoning', 'block_type': 'reasoning', 'content': '\n用户要求修改，重新生成 PRD...'})}\n\n"
+        
+        # 执行图（简化版，直接执行后续节点）
+        async for event in pageforge_graph.astream_events(
+            state_input,
+            version="v2",
+        ):
+            kind = event["event"]
+            name = event.get("name", "")
+            
+            # 处理各种事件类型（简化处理，复用 event_stream 的逻辑）
+            if kind == "on_chat_model_start":
+                yield f"event: REASONING_CHUNK\ndata: {json.dumps({'block_id': 'blk_reasoning', 'block_type': 'reasoning', 'content': '\n正在生成页面...'})}\n\n"
+            
+            elif kind == "on_chat_model_stream":
+                chunk = event["data"].get("chunk", {})
+                if hasattr(chunk, "content") and chunk.content:
+                    content = chunk.content
+                    if content.strip():
+                        yield f"event: CHUNK_DELTA\ndata: {json.dumps({'block_type': 'text', 'content': content})}\n\n"
+            
+            elif kind == "on_chain_end" and name == "LangGraph":
+                final_state = event["data"].get("output", {})
+                if final_state:
+                    output_html = final_state.get("output_html", "")
+                    output_version = final_state.get("output_version", 0)
+                    response_msg = final_state.get("response_message", "")
+                    
+                    if output_html:
+                        yield f"event: HTML_UPDATE\ndata: {json.dumps({'html': output_html, 'version': output_version})}\n\n"
+                    
+                    if response_msg:
+                        yield f"event: CHUNK_DELTA\ndata: {json.dumps({'block_type': 'text', 'content': response_msg})}\n\n"
+                    
+                    session_service.add_message(
+                        session_id, "assistant",
+                        response_msg or "完成",
+                        html_version=output_version,
+                    )
+        
+        yield f"event: done\ndata: {{}}\n\n"
+        
+    except Exception as e:
+        yield f"event: ERROR\ndata: {json.dumps({'content': str(e)})}\n\n"
+
+
 @router.post("/{session_id}/messages")
 async def send_message(session_id: str, req: MessageRequest):
-    """发送消息 — SSE 流式响应"""
+    """发送消息 — SSE 流式响应
+    
+    如果存在等待中的人机协作检查点，则将用户消息作为响应提交并恢复执行。
+    否则，作为普通消息处理。
+    """
     session = session_service.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
+    
+    # 检查是否有等待的人机协作检查点
+    waiting = await checkpoint_manager.get_waiting_checkpoints(session_id)
+    
+    if waiting:
+        # 有等待的检查点，解析用户消息作为响应
+        try:
+            response_data = json.loads(req.message)
+            checkpoint_id = waiting[0]["checkpoint_id"]
+            
+            # 提交用户响应
+            await checkpoint_manager.submit_human_response(
+                checkpoint_id=checkpoint_id,
+                action=response_data.get("action", "confirm"),
+                data=response_data
+            )
+            
+            # 从检查点恢复执行
+            return StreamingResponse(
+                resume_stream(session_id, checkpoint_id, req.message),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        except json.JSONDecodeError:
+            # 用户消息不是 JSON，当作普通消息处理
+            pass
+    
+    # 普通消息处理
     return StreamingResponse(
         event_stream(session_id, req.message),
         media_type="text/event-stream",

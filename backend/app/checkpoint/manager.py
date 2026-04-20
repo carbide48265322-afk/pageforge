@@ -7,7 +7,7 @@ from typing import Optional
 import redis
 from redis.exceptions import RedisError
 
-from .models import CheckpointData, HumanInputResponse
+from .models import CheckpointData, HumanInputResponse, HumanInputRequest, HumanInputType, CheckpointType
 
 
 class CheckpointManager:
@@ -238,3 +238,170 @@ class CheckpointManager:
             return self._redis.ping()
         except RedisError:
             return False
+    
+    # ---- 人机协作专用方法 ----
+    
+    async def create_human_input_checkpoint(
+        self,
+        session_id: str,
+        phase: str,
+        input_type: HumanInputType,
+        title: str,
+        description: str,
+        schema: dict,
+        context: dict,
+        ttl: int = DEFAULT_TTL
+    ) -> HumanInputRequest:
+        """创建人机协作检查点
+        
+        Args:
+            session_id: 会话ID
+            phase: 当前阶段
+            input_type: 输入类型
+            title: 表单标题
+            description: 说明文字
+            schema: JSON Schema 定义表单结构
+            context: 上下文数据
+            ttl: 过期时间（秒）
+            
+        Returns:
+            HumanInputRequest: 人机协作请求
+        """
+        checkpoint_id = f"human_{session_id}_{phase}_{int(datetime.utcnow().timestamp())}"
+        now = datetime.utcnow()
+        expires_at = now + timedelta(seconds=ttl)
+        
+        request: HumanInputRequest = {
+            "checkpoint_id": checkpoint_id,
+            "session_id": session_id,
+            "phase": phase,
+            "input_type": input_type.value,
+            "title": title,
+            "description": description,
+            "schema": schema,
+            "context": context,
+            "created_at": now.isoformat(),
+            "expires_at": expires_at.isoformat()
+        }
+        
+        checkpoint: CheckpointData = {
+            "session_id": session_id,
+            "checkpoint_id": checkpoint_id,
+            "phase": phase,
+            "checkpoint_type": CheckpointType.HUMAN_INPUT.value,
+            "status": "waiting_human",
+            "state": {},
+            "presentation": {"title": title, "description": description},
+            "options": [],
+            "human_input_request": request,
+            "human_input_response": None,
+            "created_at": now.isoformat(),
+            "expires_at": expires_at.isoformat()
+        }
+        
+        key = self._make_key(checkpoint_id)
+        session_key = self._make_session_key(session_id)
+        
+        try:
+            # 保存检查点数据
+            self._redis.setex(
+                key,
+                ttl,
+                json.dumps(checkpoint, default=str)
+            )
+            # 添加到会话索引
+            self._redis.zadd(session_key, {checkpoint_id: now.timestamp()})
+            self._redis.expire(session_key, ttl)
+            
+            return request
+        except RedisError as e:
+            raise RuntimeError(f"Failed to create human input checkpoint: {e}")
+    
+    async def submit_human_response(
+        self,
+        checkpoint_id: str,
+        action: str,
+        data: dict,
+        ttl: int = 86400  # 1天
+    ) -> HumanInputResponse:
+        """提交人机协作响应
+        
+        Args:
+            checkpoint_id: 检查点ID
+            action: 用户操作
+            data: 用户填写的数据
+            ttl: 过期时间（秒）
+            
+        Returns:
+            HumanInputResponse: 用户响应
+            
+        Raises:
+            ValueError: 检查点不存在或状态不正确
+        """
+        checkpoint = await self.load(checkpoint_id)
+        if not checkpoint:
+            raise ValueError(f"Checkpoint {checkpoint_id} not found")
+        
+        if checkpoint.get("status") != "waiting_human":
+            raise ValueError(f"Checkpoint status is {checkpoint.get('status')}, expected waiting_human")
+        
+        now = datetime.utcnow()
+        response: HumanInputResponse = {
+            "checkpoint_id": checkpoint_id,
+            "action": action,
+            "data": data,
+            "responded_at": now.isoformat()
+        }
+        
+        # 更新检查点状态
+        checkpoint["human_input_response"] = response
+        checkpoint["status"] = "completed"
+        
+        key = self._make_key(checkpoint_id)
+        
+        try:
+            self._redis.setex(
+                key,
+                ttl,
+                json.dumps(checkpoint, default=str)
+            )
+            
+            return response
+        except RedisError as e:
+            raise RuntimeError(f"Failed to submit human response: {e}")
+    
+    async def get_waiting_checkpoints(
+        self,
+        session_id: str
+    ) -> list[CheckpointData]:
+        """获取会话中等待用户响应的检查点
+        
+        Args:
+            session_id: 会话ID
+            
+        Returns:
+            等待中的检查点列表
+        """
+        checkpoints = await self.list_by_session(session_id)
+        return [cp for cp in checkpoints if cp.get("status") == "waiting_human"]
+    
+    async def get_checkpoint_by_phase(
+        self,
+        session_id: str,
+        phase: str
+    ) -> Optional[CheckpointData]:
+        """获取指定阶段的检查点
+        
+        Args:
+            session_id: 会话ID
+            phase: 阶段名称
+            
+        Returns:
+            检查点数据或 None
+        """
+        checkpoints = await self.list_by_session(session_id)
+        for cp in checkpoints:
+            request = cp.get("human_input_request")
+            if request and request.get("phase") == phase:
+                return cp
+        return None

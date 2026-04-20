@@ -5,6 +5,7 @@ from app.graph.state import AgentState
 from app.graph.tools import AGENT_TOOLS
 from app.skills.loader import create_skill_tools
 from app.config import SKILLS_DIR
+from app.graph.nodes_human import human_input_node
 # 工具名到工具对象的映射，用于 ReAct 循环中查找和执行工具
 TOOL_MAP = {tool.name: tool for tool in AGENT_TOOLS}
 

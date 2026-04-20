@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { sendMessageSSE, type Message } from "../services/api";
+import { sendMessageSSE, type Message, type HumanInputRequest } from "../services/api";
 
 /** 渲染块类型 */
 export type BlockType = "reasoning" | "text" | "tool_call" | "generation";
@@ -40,8 +40,12 @@ export interface UseSSEReturn {
     streamingHtml: string;
     /** 最新生成的版本号 */
     latestVersion: number;
+    /** 人机协作请求 */
+    humanInputRequest: HumanInputRequest | null;
     /** 发送消息 */
     sendMessage: (content: string) => void;
+    /** 提交人机协作响应 */
+    submitHumanInput: (data: { action: string; [key: string]: any }) => void;
     /** 停止生成 */
     stopGeneration: () => void;
     /** 清空对话 */
@@ -64,6 +68,7 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
     const [latestHtml, setLatestHtml] = useState("");
     const [streamingHtml, setStreamingHtml] = useState("");
     const [latestVersion, setLatestVersion] = useState(0);
+    const [humanInputRequest, setHumanInputRequest] = useState<HumanInputRequest | null>(null);
 
     const abortRef = useRef<AbortController | null>(null);
     const blockIdRef = useRef(0);
@@ -337,6 +342,14 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
                     setLatestVersion(version);
                 },
 
+                // 人机协作请求
+                onHumanInputRequest: (request: HumanInputRequest) => {
+                    setHumanInputRequest(request);
+                    setIsLoading(false); // 暂停加载状态，等待用户输入
+                    stopConsumer();
+                    stopStreamConsumer();
+                },
+
                 // 流式结束
                 onDone: () => {
                     stopConsumer();
@@ -400,6 +413,155 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
         ],
     );
 
+    /** 提交人机协作响应 */
+    const submitHumanInput = useCallback((data: { action: string; [key: string]: any }) => {
+        if (!sessionId || !humanInputRequest) return;
+        
+        // 发送响应并恢复执行
+        const message = JSON.stringify(data);
+        setHumanInputRequest(null);
+        setIsLoading(true);
+        
+        // 重置状态
+        setCurrentBlocks([]);
+        blocksRef.current = [];
+        bufferRef.current = [];
+        streamBufferRef.current = [];
+        streamDisplayRef.current = "";
+        blockIdRef.current = 0;
+        
+        startConsumer();
+        startStreamConsumer();
+        
+        abortRef.current = sendMessageSSE(sessionId, message, {
+            onMessageStart: () => {},
+            onReasoningChunk: (blockId: string, chunk: string) => {
+                const blocks = blocksRef.current;
+                const existing = blocks.find((b) => b.id === blockId);
+                if (existing) {
+                    existing.content += "\n" + chunk;
+                } else {
+                    blocks.push({
+                        id: blockId,
+                        type: "reasoning",
+                        content: chunk,
+                        status: "streaming",
+                    });
+                }
+                setCurrentBlocks([...blocks]);
+            },
+            onToolCall: (blockId: string, tool: string, args: Record<string, unknown>) => {
+                blocksRef.current.push({
+                    id: blockId,
+                    type: "tool_call",
+                    content: "",
+                    status: "streaming",
+                    tool,
+                    args,
+                });
+                setCurrentBlocks([...blocksRef.current]);
+            },
+            onToolResult: (blockId: string, _tool: string, result: unknown) => {
+                const blocks = blocksRef.current;
+                const target = blocks.find((b) => b.id === blockId);
+                if (target) {
+                    target.result = result;
+                    target.status = "done";
+                }
+                setCurrentBlocks([...blocks]);
+            },
+            onGenerationStart: (blockId: string) => {
+                blocksRef.current.push({
+                    id: blockId,
+                    type: "generation",
+                    content: "",
+                    status: "loading",
+                });
+                setCurrentBlocks([...blocksRef.current]);
+            },
+            onGenerationDone: (blockId: string) => {
+                const blocks = blocksRef.current;
+                const target = blocks.find((b) => b.id === blockId);
+                if (target) {
+                    target.status = "done";
+                }
+                setCurrentBlocks([...blocks]);
+            },
+            onChunkDelta: (chunk: string) => {
+                const blocks = blocksRef.current;
+                const last = blocks[blocks.length - 1];
+                if (last && last.type === "text" && last.status === "streaming") {
+                    bufferRef.current.push(chunk);
+                } else {
+                    if (last && last.type === "reasoning" && last.status === "streaming") {
+                        last.status = "done";
+                    }
+                    blocks.push({
+                        id: nextBlockId(),
+                        type: "text",
+                        content: "",
+                        status: "streaming",
+                    });
+                    bufferRef.current.push(chunk);
+                }
+                setCurrentBlocks([...blocks]);
+            },
+            onHtmlStream: (content: string) => {
+                streamBufferRef.current.push(content);
+            },
+            onHtmlUpdate: (html: string, version: number) => {
+                setLatestHtml(html);
+                setLatestVersion(version);
+            },
+            onHumanInputRequest: (request: HumanInputRequest) => {
+                setHumanInputRequest(request);
+                setIsLoading(false);
+                stopConsumer();
+                stopStreamConsumer();
+            },
+            onDone: () => {
+                stopConsumer();
+                stopStreamConsumer();
+                setIsLoading(false);
+                abortRef.current = null;
+                const blocks = blocksRef.current;
+                blocks.forEach((b) => {
+                    if (b.status === "streaming" || b.status === "loading")
+                        b.status = "done";
+                });
+                const lastUserMsg = messagesRef.current[messagesRef.current.length - 1];
+                if (lastUserMsg && lastUserMsg.role === "user" && blocks.length > 0) {
+                    setCompletedTurns((prev) => [
+                        ...prev,
+                        { userMsg: lastUserMsg, blocks: [...blocks] },
+                    ]);
+                }
+                setCurrentBlocks([]);
+                blocksRef.current = [];
+            },
+            onError: (errorMsg: string) => {
+                stopConsumer();
+                stopStreamConsumer();
+                setIsLoading(false);
+                abortRef.current = null;
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        id: `local-${Date.now()}`,
+                        session_id: sessionId,
+                        role: "assistant",
+                        content: `抱歉，出现错误：${errorMsg}`,
+                        timestamp: new Date().toISOString(),
+                        tool_calls: [],
+                        html_version: null,
+                    },
+                ]);
+                blocksRef.current = [];
+                setCurrentBlocks([]);
+            },
+        });
+    }, [sessionId, humanInputRequest, startConsumer, stopConsumer, startStreamConsumer, stopStreamConsumer, nextBlockId]);
+
     /** 停止当前生成 */
     const stopGeneration = useCallback(() => {
         abortRef.current?.abort();
@@ -437,7 +599,9 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
         latestHtml,
         streamingHtml,
         latestVersion,
+        humanInputRequest,
         sendMessage,
+        submitHumanInput,
         stopGeneration,
         clearMessages,
     };

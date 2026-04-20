@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Square, ChevronDown, Wrench, Check, Loader2 } from "lucide-react";
 
-import type { Message } from "../services/api";
+import type { Message, HumanInputRequest } from "../services/api";
 import type { RenderBlock } from "../hooks/useSSE";
 import { MessageBubble } from "./MessageBubble";
 import { GenerationCard } from "./GenerationCard";
+import { HumanInputForm } from "./HumanInputForm";
 /** ChatPanel 组件的 props */
 interface ChatPanelProps {
     messages: Message[];
@@ -12,9 +13,11 @@ interface ChatPanelProps {
     currentBlocks: RenderBlock[];
     completedTurns: { userMsg: Message; blocks: RenderBlock[] }[];
     latestVersion: number;
+    humanInputRequest: HumanInputRequest | null;
     onSendMessage: (content: string) => void;
     onStopGeneration: () => void;
     onPreview: () => void;
+    onSubmitHumanInput: (data: { action: string; [key: string]: any }) => void;
 }
 /**
  * 聊天面板组件
@@ -27,9 +30,11 @@ export function ChatPanel({
     currentBlocks,
     completedTurns,
     latestVersion,
+    humanInputRequest,
     onSendMessage,
     onStopGeneration,
     onPreview,
+    onSubmitHumanInput,
 }: ChatPanelProps) {
     const [input, setInput] = useState("");
     const [isAtBottom, setIsAtBottom] = useState(true);
@@ -176,6 +181,13 @@ export function ChatPanel({
                 )}
                 {/* 当前流式渲染块 */}
                 {currentBlocks.length > 0 && renderBlocks(currentBlocks)}
+                {/* 人机协作表单 */}
+                {humanInputRequest && (
+                    <HumanInputForm
+                        request={humanInputRequest}
+                        onSubmit={onSubmitHumanInput}
+                    />
+                )}
                 {/* 滚动锚点 */}
                 <div ref={messagesEndRef} />
 
@@ -199,48 +211,50 @@ export function ChatPanel({
                 )}
             </div>
 
-            {/* 输入区域 */}
-            <div className="border-t border-gray-200 px-4 py-3">
-                <div className="flex items-end gap-2">
-                    {/* 多行文本输入框 */}
-                    <textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        onCompositionStart={() => setIsComposing(true)}
-                        onCompositionEnd={() => setIsComposing(false)}
-                        placeholder="描述你想要的页面..."
-                        rows={1}
-                        className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm
-                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                            disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled={isLoading}
-                    />
-
-                    {/* 发送 / 停止按钮 */}
-                    {isLoading ? (
-                        <button
-                            onClick={onStopGeneration}
-                            className="flex items-center justify-center w-9 h-9 rounded-lg
-                                bg-red-500 text-white hover:bg-red-600 transition-colors"
-                            title="停止生成"
-                        >
-                            <Square size={16} />
-                        </button>
-                    ) : (
-                        <button
-                            onClick={handleSubmit}
-                            disabled={!input.trim()}
-                            className="flex items-center justify-center w-9 h-9 rounded-lg
-                                bg-blue-600 text-white hover:bg-blue-700 transition-colors
+            {/* 输入区域 - 人机协作时隐藏 */}
+            {!humanInputRequest && (
+                <div className="border-t border-gray-200 px-4 py-3">
+                    <div className="flex items-end gap-2">
+                        {/* 多行文本输入框 */}
+                        <textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onCompositionStart={() => setIsComposing(true)}
+                            onCompositionEnd={() => setIsComposing(false)}
+                            placeholder="描述你想要的页面..."
+                            rows={1}
+                            className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm
+                                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                                 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="发送"
-                        >
-                            <Send size={16} />
-                        </button>
-                    )}
+                            disabled={isLoading}
+                        />
+
+                        {/* 发送 / 停止按钮 */}
+                        {isLoading ? (
+                            <button
+                                onClick={onStopGeneration}
+                                className="flex items-center justify-center w-9 h-9 rounded-lg
+                                    bg-red-500 text-white hover:bg-red-600 transition-colors"
+                                title="停止生成"
+                            >
+                                <Square size={16} />
+                            </button>
+                        ) : (
+                            <button
+                                onClick={handleSubmit}
+                                disabled={!input.trim()}
+                                className="flex items-center justify-center w-9 h-9 rounded-lg
+                                    bg-blue-600 text-white hover:bg-blue-700 transition-colors
+                                    disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="发送"
+                            >
+                                <Send size={16} />
+                            </button>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }

@@ -31,11 +31,12 @@ function App() {
     isLoading,
     currentBlocks,
     completedTurns,
-
     latestHtml,
     streamingHtml,
     latestVersion,
+    humanInputRequest,
     sendMessage,
+    submitHumanInput,
     stopGeneration,
   } = useSSE(sessionId);
 
@@ -125,9 +126,11 @@ function App() {
               currentBlocks={currentBlocks}
               completedTurns={completedTurns}
               latestVersion={latestVersion}
+              humanInputRequest={humanInputRequest}
               onSendMessage={sendMessage}
               onStopGeneration={stopGeneration}
               onPreview={() => setPreviewOpen(true)}
+              onSubmitHumanInput={submitHumanInput}
             />
           }
           rightPanel={

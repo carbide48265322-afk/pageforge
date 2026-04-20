@@ -92,6 +92,33 @@ export function getExportUrl(sessionId: string, version?: number): string {
 
 // ==================== SSE 消息发送 ====================
 
+/** 人机协作请求数据 */
+export interface HumanInputRequest {
+    checkpoint_id: string;
+    session_id: string;
+    phase: string;
+    input_type: string;
+    title: string;
+    description: string;
+    schema: {
+        type: string;
+        title: string;
+        properties: Record<string, {
+            type: string;
+            enum?: string[];
+            title?: string;
+            description?: string;
+        }>;
+        required?: string[];
+    };
+    context: {
+        prd?: string;
+        design_concept?: string;
+    };
+    created_at: string;
+    expires_at: string;
+}
+
 /** SSE 事件回调接口 */
 interface SSEHandlers {
     onMessageStart?: () => void;
@@ -107,6 +134,7 @@ interface SSEHandlers {
     onChunkDelta?: (content: string) => void;
     onHtmlStream?: (content: string) => void;
     onHtmlUpdate?: (html: string, version: number) => void;
+    onHumanInputRequest?: (request: HumanInputRequest) => void;
     onDone?: () => void;
     onError?: (content: string) => void;
 }
@@ -194,6 +222,9 @@ export function sendMessageSSE(
                                         data.html,
                                         data.version,
                                     );
+                                    break;
+                                case "HUMAN_INPUT_REQUEST":
+                                    handlers.onHumanInputRequest?.(data);
                                     break;
                                 case "done":
                                     handlers.onDone?.();
