@@ -2,11 +2,32 @@ import os
 from pathlib import Path
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
+
 # 项目根目录（pageforge/）
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # 加载 .env 文件
 load_dotenv(BASE_DIR / ".env")
+
+
+class Settings(BaseSettings):
+    """应用配置"""
+    # Redis 配置
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: str = "pageforge"
+    REDIS_DB: int = 0
+    
+    # 检查点配置
+    CHECKPOINT_TTL: int = 3600  # 1小时
+    CHECKPOINT_RESPONSE_TTL: int = 86400  # 1天
+    
+    class Config:
+        env_file = ".env"
+
+
+settings = Settings()
 
 # 数据目录
 DATA_DIR = BASE_DIR / "data"
