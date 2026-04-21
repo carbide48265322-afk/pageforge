@@ -14,6 +14,7 @@ from .pipeline import PipelineReflectionSubgraph
 from .selection import SelectionSubgraph
 from .requirement import RequirementSubgraph
 from .design import DesignSubgraph
+from .tech import TechSubgraph
 
 __all__ = [
     "BaseSubgraph",
@@ -24,4 +25,5 @@ __all__ = [
     "SelectionSubgraph",
     "RequirementSubgraph",
     "DesignSubgraph",
+    "TechSubgraph",
 ]
