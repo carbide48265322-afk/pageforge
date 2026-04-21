@@ -16,6 +16,8 @@ from .requirement import RequirementSubgraph
 from .design import DesignSubgraph
 from .tech import TechSubgraph
 from .feature import FeatureSubgraph
+from .code import CodeSubgraph
+from .delivery import DeliverySubgraph
 
 __all__ = [
     "BaseSubgraph",
@@ -28,4 +30,6 @@ __all__ = [
     "DesignSubgraph",
     "TechSubgraph",
     "FeatureSubgraph",
+    "CodeSubgraph",
+    "DeliverySubgraph",
 ]
