@@ -52,6 +52,16 @@ async def event_stream(session_id: str, message: str):
         "user_message": message,
         "session_id": session_id,
         "base_html": base_html,
+        "created_at": session.created_at,
+        "phase": "start",
+        "stage": "start",
+        "project_config": {},
+        "design_concept": "",
+        "conception_doc": "",
+        "demo_html": "",
+        "demo_instructions": "",
+        "demo_link": "",
+        "is_demo_ready": False,
         "task_list": [],
         "current_html": "",
         "validation_errors": [],
@@ -97,19 +107,26 @@ async def event_stream(session_id: str, message: str):
             name = event.get("name", "")
             node = event.get("metadata", {}).get("langgraph_node", "")
 
-            # ---- LLM 开始 ----
-            if kind == "on_chat_model_start" and node == "execute":
-                llm_call_count += 1
-                if llm_call_count == 1:
-                    label = "正在分析需求..."
-                elif llm_call_count == 2:
-                    label = "正在规划页面结构..."
-                else:
-                    label = f"正在优化调整（第 {llm_call_count - 1} 轮）..."
-                yield f"event: REASONING_CHUNK\ndata: {json.dumps({'block_id': reasoning_bid, 'block_type': 'reasoning', 'content': '\n' + label})}\n\n"
+            # ---- 阶段处理 ----
+            if kind == "on_chat_model_start":
+                if node == "start":
+                    yield f"event: REASONING_CHUNK\ndata: {json.dumps({'block_id': reasoning_bid, 'block_type': 'reasoning', 'content': '\n正在初始化项目...'})}\n\n"
+                elif node == "ideate":
+                    yield f"event: REASONING_CHUNK\ndata: {json.dumps({'block_id': reasoning_bid, 'block_type': 'reasoning', 'content': '\n正在构想项目设计...'})}\n\n"
+                elif node == "demo":
+                    yield f"event: REASONING_CHUNK\ndata: {json.dumps({'block_id': reasoning_bid, 'block_type': 'reasoning', 'content': '\n正在准备项目演示...'})}\n\n"
+                elif node == "execute":
+                    llm_call_count += 1
+                    if llm_call_count == 1:
+                        label = "正在分析需求..."
+                    elif llm_call_count == 2:
+                        label = "正在规划页面结构..."
+                    else:
+                        label = f"正在优化调整（第 {llm_call_count - 1} 轮）..."
+                    yield f"event: REASONING_CHUNK\ndata: {json.dumps({'block_id': reasoning_bid, 'block_type': 'reasoning', 'content': '\n' + label})}\n\n"
 
             # ---- LLM 流式输出 ----
-            elif kind == "on_chat_model_stream" and node == "execute":
+            elif kind == "on_chat_model_stream":
                 chunk = event["data"].get("chunk", {})
                 if hasattr(chunk, "content") and chunk.content:
                     content = chunk.content
@@ -219,9 +236,18 @@ async def event_stream(session_id: str, message: str):
             output_html = final_state.get("output_html", "")
             output_version = final_state.get("output_version", 0)
             response_msg = final_state.get("response_message", "")
+            conception_doc = final_state.get("conception_doc", "")
+            demo_link = final_state.get("demo_link", "")
+            demo_html = final_state.get("demo_html", "")
 
             if output_html:
                 yield f"event: HTML_UPDATE\ndata: {json.dumps({'html': output_html, 'version': output_version})}\n\n"
+
+            if conception_doc:
+                yield f"event: CHUNK_DELTA\ndata: {json.dumps({'block_type': 'text', 'content': f'\n## 项目构想\n{conception_doc}'})}\n\n"
+
+            if demo_link:
+                yield f"event: CHUNK_DELTA\ndata: {json.dumps({'block_type': 'text', 'content': f'\n## 项目演示\n演示链接: {demo_link}'})}\n\n"
 
             if response_msg:
                 yield f"event: CHUNK_DELTA\ndata: {json.dumps({'block_type': 'text', 'content': response_msg})}\n\n"

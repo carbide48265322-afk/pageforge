@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
-import { X, Monitor, Tablet, Smartphone, Copy, Download, Check } from "lucide-react";
+import { X, Monitor, Tablet, Smartphone, Copy, Download, Check, Loader2 } from "lucide-react";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import xml from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
 import github from "react-syntax-highlighter/dist/esm/styles/hljs/github";
 // 注册语言（xml 包含 html 别名）
 SyntaxHighlighter.registerLanguage("xml", xml);
 SyntaxHighlighter.registerLanguage("html", xml);
+
+/** 工作流阶段类型 */
+export type WorkflowStage = {
+    stage: string;
+    label: string;
+    color: string;
+};
 
 /** 预览面板的 props */
 interface PreviewPanelProps {
@@ -17,6 +24,8 @@ interface PreviewPanelProps {
     isOpen: boolean;
     /** 关闭预览面板回调 */
     onClose: () => void;
+    /** 当前工作流阶段 */
+    workflowStage?: WorkflowStage | null;
 }
 
 /** 响应式尺寸类型 */
@@ -35,7 +44,7 @@ const SIZE_WIDTHS: Record<ResponsiveSize, string> = {
  * 支持预览/源码切换、响应式尺寸切换、收起/展开
  * 使用 CSS display 切换避免 iframe 重复加载
  */
-export function PreviewPanel({ html, streamingHtml, isOpen, onClose }: PreviewPanelProps) {
+export function PreviewPanel({ html, streamingHtml, isOpen, onClose, workflowStage }: PreviewPanelProps) {
     const [viewMode, setViewMode] = useState<"preview" | "source">("preview");
     const [size, setSize] = useState<ResponsiveSize>("desktop");
     // 新增 state 控制复制成功提示
@@ -100,6 +109,15 @@ export function PreviewPanel({ html, streamingHtml, isOpen, onClose }: PreviewPa
         >            {/* 顶部工具栏 */}
             <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
                 <div className="flex items-center">
+                    {/* 工作流阶段显示 */}
+                    {workflowStage && (
+                        <div className="mr-4">
+                            <div className={`flex items-center gap-2 text-xs font-medium ${workflowStage.color}`}>
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>{workflowStage.label}</span>
+                            </div>
+                        </div>
+                    )}
                     {/* 视图模式切换 */}
                     <div className="flex items-center gap-1 mr-4">
                         <button

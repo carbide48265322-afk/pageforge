@@ -7,6 +7,10 @@ import { PreviewPanel } from "./components/PreviewPanel";
 import { ResizableLayout } from "./components/ResizableLayout";
 import { VersionSelector } from "./components/VersionSelector";
 import { BaseConfirmDialog } from "./components/BaseConfirmDialog";
+import { IdeationPanel } from './components/IdeationPanel';
+// import type { StyleSelector } from './components/StyleSelector';
+import { ExportButton } from './components/ExportButton';
+import { exportProject, downloadProject } from './services/api';
 import type { PageVersion } from "./services/api";
 
 /**
@@ -47,6 +51,16 @@ function App() {
   const [pendingVersion, setPendingVersion] = useState<PageVersion | null>(null);
   // 新增：预览区显示的 HTML（SSE 推送或版本加载）
   const [previewHtml, setPreviewHtml] = useState("")
+  // 工作流阶段状态
+  const [workflowStage, setWorkflowStage] = useState<{ stage: string; label: string; color: string } | null>(null);
+  const [showIdeationPanel, setShowIdeationPanel] = useState(false);
+  const [requirementsDoc, setRequirementsDoc] = useState('');
+  const [designConcept, _setDesignConcept] = useState('');
+  // const [availableStyles, _setAvailableStyles] = useState([
+  //   { id: 'modern', name: '现代风格', description: '简洁、现代的设计风格', preview: '' },
+  //   { id: 'classic', name: '经典风格', description: '传统、稳重的设计风格', preview: '' },
+  // ]);
+  // const [selectedStyle, _setSelectedStyle] = useState('modern');
   // 应用启动时自动创建会话
   useEffect(() => {
     newSession();
@@ -71,6 +85,44 @@ function App() {
     }
   }, [latestHtml]);
 
+  // 从 currentBlocks 中提取工作流阶段信息
+  useEffect(() => {
+    const reasonings = currentBlocks.filter((b) => b.type === "reasoning");
+    if (reasonings.length > 0) {
+      const reasoningContent = reasonings.map((r) => r.content).join("");
+      // 开始阶段
+      if (reasoningContent.includes("正在初始化项目") || 
+          reasoningContent.includes("开始项目") || 
+          reasoningContent.includes("项目启动")) {
+        setWorkflowStage({ stage: "start", label: "启动阶段", color: "text-blue-500" });
+      }
+      // 构想阶段
+      else if (reasoningContent.includes("正在构想项目设计") || 
+               reasoningContent.includes("项目构想") || 
+               reasoningContent.includes("设计构思")) {
+        setWorkflowStage({ stage: "ideate", label: "构想阶段", color: "text-purple-500" });
+      }
+      // 演示阶段
+      else if (reasoningContent.includes("正在准备项目演示") || 
+               reasoningContent.includes("项目演示") || 
+               reasoningContent.includes("演示准备")) {
+        setWorkflowStage({ stage: "demo", label: "演示阶段", color: "text-green-500" });
+      }
+      // 其他阶段
+      else if (reasoningContent.includes("正在分析需求")) {
+        setWorkflowStage({ stage: "analyze", label: "分析阶段", color: "text-yellow-500" });
+      } else if (reasoningContent.includes("正在规划页面结构")) {
+        setWorkflowStage({ stage: "plan", label: "规划阶段", color: "text-orange-500" });
+      } else if (reasoningContent.includes("正在优化调整")) {
+        setWorkflowStage({ stage: "optimize", label: "优化阶段", color: "text-red-500" });
+      } else {
+        setWorkflowStage(null);
+      }
+    } else {
+      setWorkflowStage(null);
+    }
+  }, [currentBlocks]);
+
   /** 选择版本 → 弹出确认 */
   const handleSelectVersion = (version: PageVersion) => {
     setPendingVersion(version);
@@ -87,6 +139,18 @@ function App() {
     setPendingVersion(null);
   };
 
+  const handleExport = async (projectName: string) => {
+    if (!sessionId || !latestHtml) return;
+    
+    try {
+      const blob = await exportProject(sessionId, projectName);
+      await downloadProject(blob, `${projectName}.zip`);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('导出失败，请重试');
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col bg-white">
       {/* 顶部导航栏 */}
@@ -96,6 +160,11 @@ function App() {
           <span className="text-xs text-gray-400">AI 页面生成器</span>
         </div>
         <div className="flex items-center gap-2">
+          <ExportButton
+            projectName="my-project"
+            htmlContent={latestHtml || ''}
+            onExport={handleExport}
+          />
           {/* 版本选择器 */}
           <VersionSelector
             versions={versions}
@@ -115,6 +184,20 @@ function App() {
           </button>
         </div>
       </header>
+
+      {/* 构想阶段面板 */}
+      {showIdeationPanel && (
+        <div className="border-b border-gray-200 h-96">
+          <IdeationPanel
+            requirementsDoc={requirementsDoc}
+            designConcept={designConcept}
+            onRequirementsChange={setRequirementsDoc}
+            onApprove={() => setShowIdeationPanel(false)}
+            onRegenerate={() => {}}
+            isLoading={isLoading}
+          />
+        </div>
+      )}
 
       {/* 主内容区：可拖拽分栏 */}
       <main className="flex-1 overflow-hidden">
@@ -139,6 +222,7 @@ function App() {
               streamingHtml={streamingHtml}
               isOpen={previewOpen}
               onClose={() => setPreviewOpen(false)}
+              workflowStage={workflowStage}
             />
           }
           isRightOpen={previewOpen}

@@ -249,3 +249,30 @@ export function sendMessageSSE(
 
     return controller;
 }
+
+export async function exportProject(sessionId: string, projectName: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/export`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ projectName }),
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to export project');
+  }
+  
+  return response.blob();
+}
+
+export async function downloadProject(blob: Blob, filename: string): Promise<void> {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}

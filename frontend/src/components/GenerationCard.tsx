@@ -10,6 +10,8 @@ interface GenerationCardProps {
     requirement: string;
     /** 点击查看预览回调 */
     onPreview: () => void;
+    /** 工作流阶段信息 */
+    workflowStage: { stage: string; label: string; color: string } | null;
 }
 
 /**
@@ -21,6 +23,7 @@ export function GenerationCard({
     version,
     requirement,
     onPreview,
+    workflowStage,
 }: GenerationCardProps) {
     if (isLoading) {
         return (
@@ -28,7 +31,14 @@ export function GenerationCard({
                 {/* 标题行 */}
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-                    <span className="text-sm text-gray-600">正在生成页面...</span>
+                    <span className="text-sm text-gray-600">
+                        {workflowStage ? `${workflowStage.label}...` : "正在生成页面..."}
+                    </span>
+                    {workflowStage && (
+                        <span className={`text-xs font-medium ${workflowStage.color}`}>
+                            {workflowStage.label}
+                        </span>
+                    )}
                 </div>
                 {/* 骨架条 */}
                 <div className="space-y-2">

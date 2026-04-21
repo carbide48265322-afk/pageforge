@@ -100,14 +100,39 @@ export function ChatPanel({
         const tools = blocks.filter((b) => b.type === "tool_call");
         const contents = blocks.filter((b) => b.type === "text" || b.type === "generation");
 
+        // 提取工作流阶段信息
+        const getWorkflowStage = () => {
+            const reasoningContent = reasonings.map((r) => r.content).join("");
+            if (reasoningContent.includes("正在初始化项目")) {
+                return { stage: "start", label: "启动阶段", color: "text-blue-500" };
+            } else if (reasoningContent.includes("正在构想项目设计")) {
+                return { stage: "ideate", label: "构想阶段", color: "text-purple-500" };
+            } else if (reasoningContent.includes("正在准备项目演示")) {
+                return { stage: "demo", label: "演示阶段", color: "text-green-500" };
+            } else if (reasoningContent.includes("正在分析需求")) {
+                return { stage: "analyze", label: "分析阶段", color: "text-yellow-500" };
+            } else if (reasoningContent.includes("正在规划页面结构")) {
+                return { stage: "plan", label: "规划阶段", color: "text-orange-500" };
+            } else if (reasoningContent.includes("正在优化调整")) {
+                return { stage: "optimize", label: "优化阶段", color: "text-red-500" };
+            }
+            return null;
+        };
+
+        const workflowStage = getWorkflowStage();
+
         return (
             <>
+                {workflowStage && (
+                    <div className="mb-3">
+                        <div className={`flex items-center gap-2 text-xs font-medium mb-1 ${workflowStage.color}`}>
+                            <Loader2 size={12} className={reasonings.some((r) => r.status === "streaming") ? "animate-spin" : ""} />
+                            <span>{workflowStage.label}</span>
+                        </div>
+                    </div>
+                )}
                 {reasonings.length > 0 && (
                     <div className="mb-2">
-                        <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-                            <Loader2 size={12} className={reasonings.some((r) => r.status === "streaming") ? "animate-spin" : ""} />
-                            <span>Agent 思考中</span>
-                        </div>
                         <div className="bg-gray-50 rounded-lg px-3 py-2 text-xs text-gray-600 whitespace-pre-wrap">
                             {reasonings.map((r) => r.content).join("")}
                         </div>
@@ -128,12 +153,13 @@ export function ChatPanel({
                     if (block.type === "generation") {
                         return (
                             <GenerationCard
-                                key={block.id}
-                                isLoading={block.status === "loading"}
-                                version={latestVersion}
-                                requirement={messages.find((m) => m.role === "user")?.content || ""}
-                                onPreview={onPreview}
-                            />
+                            key={block.id}
+                            isLoading={block.status === "loading"}
+                            version={latestVersion}
+                            requirement={messages.find((m) => m.role === "user")?.content || ""}
+                            onPreview={onPreview}
+                            workflowStage={workflowStage}
+                        />
                         );
                     }
                     return (

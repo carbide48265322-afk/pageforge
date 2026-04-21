@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.sessions import router as sessions_router
 from app.api.messages import router as messages_router
 from app.api.checkpoints import router as checkpoints_router
+from app.api import export
 from app.checkpoint import CheckpointManager
 from app.config import settings
 
@@ -22,6 +23,7 @@ app.add_middleware(
 app.include_router(sessions_router, prefix="/api/sessions", tags=["sessions"])
 app.include_router(messages_router, prefix="/api/sessions", tags=["messages"])
 app.include_router(checkpoints_router, prefix="/api/checkpoints", tags=["checkpoints"])
+app.include_router(export.router, prefix="/api", tags=["export"])
 
 
 @app.get("/api/health")

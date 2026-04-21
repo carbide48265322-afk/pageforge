@@ -253,3 +253,147 @@ async def respond_node(state: AgentState) -> dict:
         "response_message": message,
         "is_complete": True,
     }
+
+
+async def start_node(state: AgentState) -> dict:
+    """开始阶段节点 — 初始化项目设置和参数"""
+    user_message = state["user_message"]
+    
+    # 初始化项目配置
+    project_config = {
+        "project_name": "New Project",
+        "description": user_message[:100],
+        "created_at": state.get("created_at", None),
+        "status": "started"
+    }
+    
+    return {
+        "project_config": project_config,
+        "stage": "start",
+        "task_list": [{"action": "create", "target": user_message, "details": "Initial project setup"}]
+    }
+
+
+async def ideate_node(state: AgentState) -> dict:
+    """构想阶段节点 — 生成产品需求文档和设计概念"""
+    user_message = state["user_message"]
+    project_config = state.get("project_config", {})
+    
+    # 获取可用的设计风格
+    from app.skills.loader import get_design_styles
+    available_styles = get_design_styles()
+    
+    # 生成产品需求文档
+    requirements_prompt = f"""基于用户需求生成详细的产品需求文档：{user_message}
+    
+    请生成以下内容：
+    1. 项目概述
+    2. 功能需求
+    3. 非功能需求
+    4. 页面结构设计
+    5. 交互设计要点
+    
+    用清晰的 Markdown 格式输出。"""
+    
+    response = await llm.ainvoke([
+        SystemMessage(content="你是一位专业的产品经理，擅长生成详细的产品需求文档。"),
+        HumanMessage(content=requirements_prompt),
+    ])
+    
+    requirements_doc = response.content.strip()
+    
+    # 生成设计概念
+    ideation_prompt = f"""基于用户需求生成设计概念：{user_message}
+    
+    请生成：
+    1. 设计风格建议
+    2. 页面结构布局
+    3. 色彩方案
+    4. 交互元素"""
+    
+    response = await llm.ainvoke([
+        SystemMessage(content="你是一位专业的UI/UX设计师，擅长生成设计概念和方案。"),
+        HumanMessage(content=ideation_prompt),
+    ])
+    
+    design_concept = response.content.strip()
+    
+    return {
+        "design_concept": design_concept,
+        "requirements_doc": requirements_doc,
+        "requirements_approved": False,
+        "available_styles": available_styles,
+        "selected_style": "modern",  # 默认风格
+        "stage": "ideate",
+        "phase": "ideation",
+        "project_config": {**project_config, "design_concept": design_concept}
+    }
+
+
+async def demo_node(state: AgentState) -> dict:
+    """演示阶段节点 — 生成可预览的演示版本"""
+    current_html = state.get("current_html", "")
+    project_config = state.get("project_config", {})
+    
+    # 生成演示说明
+    demo_instructions = f"""演示版本说明：
+    - 项目名称：{project_config.get('project_name', 'New Project')}
+    - 设计概念：{project_config.get('design_concept', 'No concept')}
+    - 生成时间：{state.get('created_at', 'Unknown')}
+    """
+    
+    # 确保HTML存在
+    if not current_html:
+        # 如果没有HTML，生成一个基础演示页面
+        demo_html = f"""<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{project_config.get('project_name', 'Demo Page')}</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }}
+        .container {{
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        h1 {{
+            color: #333;
+        }}
+        .demo-info {{
+            background-color: #f0f0f0;
+            padding: 20px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{project_config.get('project_name', 'Demo Page')}</h1>
+        <p>这是一个演示版本的页面。</p>
+        <div class="demo-info">
+            <h3>设计概念</h3>
+            <p>{project_config.get('design_concept', 'No concept')}</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+        current_html = demo_html
+    
+    return {
+        "demo_html": current_html,
+        "demo_instructions": demo_instructions,
+        "stage": "demo",
+        "is_demo_ready": True
+    }
