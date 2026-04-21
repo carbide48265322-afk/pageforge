@@ -1,52 +1,42 @@
 from langgraph.graph import StateGraph, END, START
 from app.graph.state import AgentState
-from app.graph.nodes import intent_node, execute_node, validate_node, save_node, respond_node, start_node, ideate_node, demo_node
-from app.graph.nodes_human import human_input_node
-from app.graph.edges import should_fix, should_wait_human
+from app.graph.nodes import execute_node, validate_node, save_node, respond_node, start_node, demo_node
+from app.graph.edges import should_fix
+from app.graph.subgraphs import RequirementSubgraph
 
 
 def build_graph() -> StateGraph:
     """构建 PageForge LangGraph 工作流
     
-    流程: 开始 → 构想 → 意图理解 → [人机协作] → 执行(生成HTML) → 质量检查 → (修复循环或)保存 → 演示 → 回复
+    流程: 开始 → 需求理解子图 → 执行(生成HTML) → 质量检查 → (修复循环或)保存 → 演示 → 回复
     """
     graph = StateGraph(AgentState)
 
+    # 创建子图实例
+    requirement_subgraph = RequirementSubgraph()
+    
     # 添加节点
-    graph.add_node("start", start_node)             # 开始阶段
-    graph.add_node("ideate", ideate_node)           # 构想阶段
-    graph.add_node("intent", intent_node)           # 意图理解
-    graph.add_node("human_input", human_input_node) # 人机协作检查点
-    graph.add_node("execute", execute_node)         # ReAct 执行
-    graph.add_node("validate", validate_node)       # 质量检查
-    graph.add_node("save", save_node)               # 保存版本
-    graph.add_node("demo", demo_node)               # 演示阶段
-    graph.add_node("respond", respond_node)         # 生成回复
+    graph.add_node("start", start_node)                           # 开始阶段
+    graph.add_node("requirement", requirement_subgraph.compile()) # 需求理解子图（替换 ideate+intent+human_input）
+    graph.add_node("execute", execute_node)                       # ReAct 执行
+    graph.add_node("validate", validate_node)                     # 质量检查
+    graph.add_node("save", save_node)                             # 保存版本
+    graph.add_node("demo", demo_node)                             # 演示阶段
+    graph.add_node("respond", respond_node)                       # 生成回复
 
     # 添加边 — 定义节点之间的流转
-    graph.set_entry_point("start")                            # 入口 → 开始阶段
-    graph.add_edge("start", "ideate")                        # 开始 → 构想
-    graph.add_edge("ideate", "intent")                       # 构想 → 意图理解
-    graph.add_edge("intent", "human_input")                   # 意图理解 → 人机协作
+    graph.set_entry_point("start")                                # 入口 → 开始阶段
+    graph.add_edge("start", "requirement")                       # 开始 → 需求理解子图
+    graph.add_edge("requirement", "execute")                     # 需求确认后 → 执行
     
-    # 人机协作后的条件边
-    graph.add_conditional_edges(
-        "human_input",
-        should_wait_human,                                    # 判断是否等待用户
-        {
-            "wait": END,                                      # 等待用户，图结束
-            "continue": "execute"                             # 用户已响应，继续执行
-        }
-    )
-    
-    graph.add_edge("execute", "validate")                     # 执行 → 质量检查
-    graph.add_conditional_edges("validate", should_fix, {     # 质量检查 → 条件路由
+    graph.add_edge("execute", "validate")                        # 执行 → 质量检查
+    graph.add_conditional_edges("validate", should_fix, {        # 质量检查 → 条件路由
         "fix": "execute",   # 有错误 → 回到执行节点修复
         "save": "save",     # 通过检查 → 保存版本
     })
-    graph.add_edge("save", "demo")                            # 保存 → 演示
-    graph.add_edge("demo", "respond")                         # 演示 → 生成回复
-    graph.add_edge("respond", END)                            # 回复 → 结束
+    graph.add_edge("save", "demo")                               # 保存 → 演示
+    graph.add_edge("demo", "respond")                            # 演示 → 生成回复
+    graph.add_edge("respond", END)                               # 回复 → 结束
 
     return graph.compile()
 
