@@ -2,22 +2,24 @@ from langgraph.graph import StateGraph, END, START
 from app.graph.state import AgentState
 from app.graph.nodes import execute_node, validate_node, save_node, respond_node, start_node, demo_node
 from app.graph.edges import should_fix
-from app.graph.subgraphs import RequirementSubgraph
+from app.graph.subgraphs import RequirementSubgraph, DesignSubgraph
 
 
 def build_graph() -> StateGraph:
     """构建 PageForge LangGraph 工作流
     
-    流程: 开始 → 需求理解子图 → 执行(生成HTML) → 质量检查 → (修复循环或)保存 → 演示 → 回复
+    流程: 开始 → 需求理解子图 → 风格设计子图 → 执行(生成HTML) → 质量检查 → (修复循环或)保存 → 演示 → 回复
     """
     graph = StateGraph(AgentState)
 
     # 创建子图实例
     requirement_subgraph = RequirementSubgraph()
+    design_subgraph = DesignSubgraph()
     
     # 添加节点
     graph.add_node("start", start_node)                           # 开始阶段
-    graph.add_node("requirement", requirement_subgraph.compile()) # 需求理解子图（替换 ideate+intent+human_input）
+    graph.add_node("requirement", requirement_subgraph.compile()) # 需求理解子图
+    graph.add_node("design", design_subgraph.compile())           # 风格设计子图
     graph.add_node("execute", execute_node)                       # ReAct 执行
     graph.add_node("validate", validate_node)                     # 质量检查
     graph.add_node("save", save_node)                             # 保存版本
@@ -27,7 +29,8 @@ def build_graph() -> StateGraph:
     # 添加边 — 定义节点之间的流转
     graph.set_entry_point("start")                                # 入口 → 开始阶段
     graph.add_edge("start", "requirement")                       # 开始 → 需求理解子图
-    graph.add_edge("requirement", "execute")                     # 需求确认后 → 执行
+    graph.add_edge("requirement", "design")                      # 需求确认后 → 设计
+    graph.add_edge("design", "execute")                          # 设计确认后 → 执行
     
     graph.add_edge("execute", "validate")                        # 执行 → 质量检查
     graph.add_conditional_edges("validate", should_fix, {        # 质量检查 → 条件路由

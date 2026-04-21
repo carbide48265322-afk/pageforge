@@ -13,6 +13,7 @@ from .debate import DebateVotingSubgraph
 from .pipeline import PipelineReflectionSubgraph
 from .selection import SelectionSubgraph
 from .requirement import RequirementSubgraph
+from .design import DesignSubgraph
 
 __all__ = [
     "BaseSubgraph",
@@ -22,4 +23,5 @@ __all__ = [
     "PipelineReflectionSubgraph",
     "SelectionSubgraph",
     "RequirementSubgraph",
+    "DesignSubgraph",
 ]
