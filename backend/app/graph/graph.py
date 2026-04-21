@@ -2,13 +2,13 @@ from langgraph.graph import StateGraph, END, START
 from app.graph.state import AgentState
 from app.graph.nodes import execute_node, validate_node, save_node, respond_node, start_node, demo_node
 from app.graph.edges import should_fix
-from app.graph.subgraphs import RequirementSubgraph, DesignSubgraph, TechSubgraph
+from app.graph.subgraphs import RequirementSubgraph, DesignSubgraph, TechSubgraph, FeatureSubgraph
 
 
 def build_graph() -> StateGraph:
     """构建 PageForge LangGraph 工作流
     
-    流程: 开始 → 需求理解子图 → 风格设计子图 → 技术方案子图 → 执行(生成HTML) → 质量检查 → (修复循环或)保存 → 演示 → 回复
+    流程: 开始 → 需求理解子图 → 风格设计子图 → 技术方案子图 → 功能选择子图 → 执行(生成HTML) → 质量检查 → (修复循环或)保存 → 演示 → 回复
     """
     graph = StateGraph(AgentState)
 
@@ -16,12 +16,14 @@ def build_graph() -> StateGraph:
     requirement_subgraph = RequirementSubgraph()
     design_subgraph = DesignSubgraph()
     tech_subgraph = TechSubgraph()
+    feature_subgraph = FeatureSubgraph()
     
     # 添加节点
     graph.add_node("start", start_node)                           # 开始阶段
     graph.add_node("requirement", requirement_subgraph.compile()) # 需求理解子图
     graph.add_node("design", design_subgraph.compile())           # 风格设计子图
     graph.add_node("tech", tech_subgraph.compile())               # 技术方案子图
+    graph.add_node("feature", feature_subgraph.compile())         # 功能选择子图
     graph.add_node("execute", execute_node)                       # ReAct 执行
     graph.add_node("validate", validate_node)                     # 质量检查
     graph.add_node("save", save_node)                             # 保存版本
@@ -33,7 +35,8 @@ def build_graph() -> StateGraph:
     graph.add_edge("start", "requirement")                       # 开始 → 需求理解子图
     graph.add_edge("requirement", "design")                      # 需求确认后 → 设计
     graph.add_edge("design", "tech")                             # 设计确认后 → 技术方案
-    graph.add_edge("tech", "execute")                            # 技术确认后 → 执行
+    graph.add_edge("tech", "feature")                            # 技术确认后 → 功能选择
+    graph.add_edge("feature", "execute")                         # 功能确认后 → 执行
     
     graph.add_edge("execute", "validate")                        # 执行 → 质量检查
     graph.add_conditional_edges("validate", should_fix, {        # 质量检查 → 条件路由

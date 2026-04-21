@@ -15,6 +15,7 @@ from .selection import SelectionSubgraph
 from .requirement import RequirementSubgraph
 from .design import DesignSubgraph
 from .tech import TechSubgraph
+from .feature import FeatureSubgraph
 
 __all__ = [
     "BaseSubgraph",
@@ -26,4 +27,5 @@ __all__ = [
     "RequirementSubgraph",
     "DesignSubgraph",
     "TechSubgraph",
+    "FeatureSubgraph",
 ]
