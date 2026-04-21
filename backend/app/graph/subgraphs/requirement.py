@@ -34,7 +34,7 @@ class RequirementSubgraph(HumanInTheLoopSubgraph):
         Returns:
             Dict: PRD 文档结构
         """
-        user_message = state["user_message"]
+        user_message = state.get("user_message", "")
         
         # 检查是否已有 PRD（迭代时保留）
         subgraph_state = state.get(self.get_state_key(), {})
@@ -139,13 +139,13 @@ class RequirementSubgraph(HumanInTheLoopSubgraph):
             return {
                 "requirements_doc": prd_content,
                 "requirements_approved": True,
-                "phase": "design"
+                "phase": "design"  # 进入设计阶段
             }
         else:
             # 用户要求修改，保留反馈用于迭代
             return {
                 "requirements_approved": False,
-                "phase": "ideate"  # 回到 ideate 阶段重新生成
+                "phase": "requirement"  # 留在需求阶段重新生成
             }
     
     def should_iterate(self, state: AgentState) -> bool:
