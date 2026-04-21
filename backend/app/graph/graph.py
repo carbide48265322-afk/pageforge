@@ -9,13 +9,17 @@ from app.graph.subgraphs import (
     CodeSubgraph,
     DeliverySubgraph
 )
+from app.checkpoint import RedisCheckpointSaver
 
 
-def build_graph() -> StateGraph:
+def build_graph(checkpointer: RedisCheckpointSaver = None) -> StateGraph:
     """构建 PageForge LangGraph 工作流
     
     完整6阶段流程:
     开始 → 需求理解子图 → 风格设计子图 → 技术方案子图 → 功能选择子图 → 代码生成子图 → 交付确认子图 → 回复
+    
+    Args:
+        checkpointer: Redis 检查点存储器，用于持久化状态，支持服务重启后恢复
     """
     graph = StateGraph(AgentState)
 
@@ -48,11 +52,13 @@ def build_graph() -> StateGraph:
     graph.add_edge("delivery", "respond")                        # 交付确认后 → 生成回复
     graph.add_edge("respond", END)                               # 回复 → 结束
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
 # 编译好的图实例 — 全局单例，启动时构建一次
-pageforge_graph = build_graph()
+# 生产环境应传入 RedisCheckpointSaver 实例
+checkpointer = RedisCheckpointSaver()
+pageforge_graph = build_graph(checkpointer=checkpointer)
 
 
 if __name__ == "__main__":
