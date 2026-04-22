@@ -72,40 +72,5 @@ class SkillAutoLoader:
             return raw[match.end():].strip()
         return raw.strip()
 
-from langchain_core.tools import tool
-
-
-def create_skill_tools(skills_dir: str | Path) -> list:
-    """将所有 Skill 转换为 LangChain Tools"""
-
-    loader = SkillAutoLoader(skills_dir)
-    skills = loader.load_all()
-
-    tools = []
-
-    for skill in skills:
-        # 每个 skill 的内容缓存（闭包捕获）
-        skill_content = skill["content"]
-        skill_name = skill["name"]
-        description = skill["metadata"].get("description", f"获取 {skill_name} 的设计指南")
-
-        @tool
-        def get_skill_guide(skill_name: str = skill_name) -> str:
-            """{description}
-
-            Args:
-                skill_name: Skill 名称，如 "{skill_name}"
-            """
-            # 截断过长内容
-            if len(skill_content) > 4000:
-                return skill_content[:4000] + "\n\n...(内容过长，已截断)"
-            return skill_content
-
-        # 修正 tool name 避免冲突
-        get_skill_guide.name = f"skill_{skill_name.replace('-', '_')}"
-        # 重新设置 description（docstring 会被 LangChain 解析）
-        get_skill_guide.description = description
-
-        tools.append(get_skill_guide)
-
-    return tools
+# create_skill_tools 函数已移除，因为技能现在直接作为内容注入系统提示
+# 不再需要转换为 LangChain 工具
