@@ -18,6 +18,9 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 # Skill 定义目录
 SKILLS_DIR = BASE_DIR / "skills"
 
+# 工具目录
+TOOLS_DIR = BASE_DIR / "backend" / "app" / "graph"
+
 # LLM 配置
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)

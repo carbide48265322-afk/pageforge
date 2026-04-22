@@ -1,4 +1,5 @@
 from langchain_core.tools import tool
+from app.core import registry
 
 
 @tool
@@ -32,6 +33,7 @@ def modify_html(base_html: str, instruction: str) -> str:
     return instruction
 
 
+@registry.register_tool  # 新增装饰器
 @tool
 def validate_html(html: str) -> dict:
     """验证 HTML 页面的结构和安全性。
@@ -79,5 +81,5 @@ def validate_html(html: str) -> dict:
     }
 
 
-# Agent 可用的工具列表
-AGENT_TOOLS = [validate_html]
+# Agent 可用的工具列表 — 改为从注册中心获取
+AGENT_TOOLS = registry.get_langchain_tools()
