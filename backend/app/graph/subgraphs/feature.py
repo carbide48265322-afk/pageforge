@@ -128,5 +128,7 @@ class FeatureSubgraph(SelectionSubgraph):
             "selected_features": default_features,
             "available_features": all_features,
             "feature_approved": True,
-            "phase": "code"
+            "current_phase": "code",
+            "phase": "code",  # [DEPRECATED] 向后兼容
+            "phase_status": "running",
         }

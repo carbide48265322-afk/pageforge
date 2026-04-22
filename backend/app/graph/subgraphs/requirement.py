@@ -139,13 +139,16 @@ class RequirementSubgraph(HumanInTheLoopSubgraph):
             return {
                 "requirements_doc": prd_content,
                 "requirements_approved": True,
-                "phase": "design"  # 进入设计阶段
+                "current_phase": "design",
+                "phase": "design",  # [DEPRECATED] 向后兼容
+                "phase_status": "running",
             }
         else:
             # 用户要求修改，保留反馈用于迭代
             return {
                 "requirements_approved": False,
-                "phase": "requirement"  # 留在需求阶段重新生成
+                "current_phase": "requirement",
+                "phase": "requirement",  # [DEPRECATED] 向后兼容
             }
     
     def should_iterate(self, state: AgentState) -> bool:

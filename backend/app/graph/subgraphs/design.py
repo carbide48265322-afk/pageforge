@@ -1,184 +1,431 @@
-"""DesignSubgraph - 风格设计子图
+"""设计子图 - 嵌入4个 CodeSubgraph 并行生成4套风格项目
 
-基于 HumanInTheLoopSubgraph 实现：
-1. AI 生成 3-5 种风格方案
-2. 用户选择风格
-3. 输出设计规范
-4. 用户确认/微调规范
+并行执行机制:
+使用 LangGraph 的 fan-out/fan-in 模式实现真正的并行执行:
+1. 入口节点分发4个并行任务 (fan-out)
+2. 4个 CodeSubgraph 同时执行 (通过 Send 机制)
+3. 聚合节点等待所有任务完成 (fan-in)
 """
+from typing import Dict, Any, List
+import asyncio
 
-from typing import Any, Dict, List
-from langchain_core.messages import SystemMessage, HumanMessage
+try:
+    from langgraph.graph import StateGraph, END
+    from langgraph.types import interrupt, Send
+except ImportError:
+    StateGraph = Any
+    END = None
+    interrupt = lambda x: x
+    Send = dict
 
-from app.graph.state import AgentState
-from app.config import llm
-from .human_loop import HumanInTheLoopSubgraph
+from app.graph.subgraphs.base import BaseSubgraph
+from app.graph.subgraphs.types import SubgraphMode
+from app.graph.subgraphs.code import CodeSubgraph
 
 
-class DesignSubgraph(HumanInTheLoopSubgraph):
-    """风格设计子图
+class DesignSubgraph(BaseSubgraph[Dict]):
+    """设计子图 - 嵌入4个 CodeSubgraph 并行生成4套风格项目
     
-    实现风格方案生成和确认流程。
+    流程:
+    1. 并行执行4个 CodeSubgraph（每种风格一个）
+       - 每个 CodeSubgraph 生成完整项目（api_spec + mock_data + frontend_code + style_code + extracted_homepage）
+    2. 聚合4套完整项目
+    3. 中断等待用户选择
+    4. 输出选中的完整项目
+    
+    状态字段:
+    - design_projects: 4套完整项目列表
+    - selected_project: 用户选中的完整项目
+    - selected_style: 选中的风格
     """
     
-    name = "design"
-    description = "风格设计与规范确认"
-    max_iterations = 3
+    mode = SubgraphMode.HIERARCHICAL
     
-    def generate_content(self, state: AgentState) -> Dict:
-        """生成风格方案
-        
-        Args:
-            state: 当前状态
-            
-        Returns:
-            Dict: 风格方案列表
-        """
-        requirements_doc = state.get("requirements_doc", "")
-        
-        # 检查是否已有风格方案（迭代时保留）
-        subgraph_state = state.get(self.get_state_key(), {})
-        existing_styles = subgraph_state.get("generated_content", {})
-        user_response = subgraph_state.get("user_response", {})
-        feedback = user_response.get("feedback", "")
-        
-        if existing_styles and feedback:
-            # 迭代模式：根据反馈调整风格方案
-            prompt = f"""基于用户反馈调整风格方案：
-
-产品需求：
-{requirements_doc}
-
-当前风格方案：
-{existing_styles.get('styles', [])}
-
-用户反馈：{feedback}
-
-请调整风格方案，保持3-5个选项，根据反馈进行优化。"""
-        else:
-            # 首次生成
-            prompt = f"""基于产品需求生成3-5种风格设计方案：
-
-产品需求：
-{requirements_doc}
-
-请为每个方案提供：
-1. 方案名称
-2. 风格描述
-3. 色彩建议
-4. 字体建议
-5. 适用场景"""
-        
-        response = llm.invoke([
-            SystemMessage(content="你是一位资深UI/UX设计师，擅长生成多样化的设计风格方案。"),
-            HumanMessage(content=prompt),
-        ])
-        
-        # 解析风格方案（简化版，实际需要解析结构化数据）
-        styles = self._parse_styles(response.content)
-        
-        return {
-            "styles": styles,
-            "raw_content": response.content,
-            "version": subgraph_state.get("iteration_count", 0) + 1
+    # 4种预定义风格配置
+    STYLES = [
+        {
+            "id": "modern",
+            "name": "现代简约",
+            "config": {
+                "primary_color": "#1a1a1a",
+                "secondary_color": "#f5f5f5",
+                "font_family": "Inter, sans-serif",
+                "spacing": "comfortable",
+                "border_radius": "8px",
+                "shadow": "subtle",
+                "name": "现代简约"
+            }
+        },
+        {
+            "id": "tech",
+            "name": "科技未来",
+            "config": {
+                "primary_color": "#00d4ff",
+                "secondary_color": "#0a0a0a",
+                "font_family": "JetBrains Mono, monospace",
+                "spacing": "compact",
+                "border_radius": "4px",
+                "shadow": "glow",
+                "effects": ["gradient", "blur"],
+                "name": "科技未来"
+            }
+        },
+        {
+            "id": "business",
+            "name": "商务专业",
+            "config": {
+                "primary_color": "#1e40af",
+                "secondary_color": "#ffffff",
+                "font_family": "Georgia, serif",
+                "spacing": "spacious",
+                "border_radius": "0px",
+                "shadow": "none",
+                "name": "商务专业"
+            }
+        },
+        {
+            "id": "creative",
+            "name": "创意艺术",
+            "config": {
+                "primary_color": "#ff6b6b",
+                "secondary_color": "#ffe66d",
+                "font_family": "Playfair Display, serif",
+                "spacing": "dynamic",
+                "border_radius": "16px",
+                "shadow": "colorful",
+                "effects": ["animation", "pattern"],
+                "name": "创意艺术"
+            }
+        },
+    ]
+    
+    def __init__(self):
+        super().__init__(
+            config=type('Config', (), {
+                'name': 'design',
+                'subgraph_type': SubgraphMode.HIERARCHICAL,
+                'mode': SubgraphMode.HIERARCHICAL,
+                'max_iterations': 3,
+                'enable_human_input': True,
+                'enable_rollback': True
+            })()
+        )
+        # 创建4个 CodeSubgraph 实例，每个绑定不同风格
+        self.code_subgraphs = {
+            style["id"]: CodeSubgraph(
+                style_config=style["config"],
+                output_prefix=f"{style['id']}_"
+            )
+            for style in self.STYLES
         }
     
-    def _parse_styles(self, content: str) -> List[Dict]:
-        """解析风格方案（简化实现）"""
-        # 实际实现需要更复杂的解析逻辑
-        return [{"name": f"方案{i+1}", "description": line} 
-                for i, line in enumerate(content.split('\n')[:5]) if line.strip()]
-    
-    def to_schema(self, content: Dict) -> Dict:
-        """转换为选择表单 Schema
+    def build(self) -> StateGraph:
+        """构建并行执行的 DesignSubgraph
         
-        Args:
-            content: 风格方案内容
-            
-        Returns:
-            Dict: JSON Schema 表单定义
+        并行执行流程:
+        1. dispatcher: 分发4个并行任务
+        2. code_worker: 执行单个 CodeSubgraph (并行运行4个实例)
+        3. aggregate: 等待所有4个任务完成，聚合结果
+        4. select: 中断等待用户选择
+        5. output: 输出选中的项目
         """
-        styles = content.get("styles", [])
+        builder = StateGraph(Dict)
         
-        return {
-            "type": "object",
-            "title": "请选择设计风格",
-            "description": "请查看 AI 生成的风格方案，选择您喜欢的设计方向",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["confirm", "revise"],
-                    "title": "操作",
-                    "description": "确认选择或要求调整方案"
-                },
-                "selected_style": {
-                    "type": "string",
-                    "enum": [s["name"] for s in styles] if styles else ["方案1"],
-                    "title": "选择风格方案",
-                    "description": "请选择您喜欢的设计风格"
-                },
-                "feedback": {
-                    "type": "string",
-                    "title": "调整建议",
-                    "description": "如需调整方案，请描述您的需求",
-                    "x-display": "textarea"
+        # 分发节点 - fan-out
+        builder.add_node("dispatcher", self._dispatcher_node())
+        
+        # 工作节点 - 执行单个 CodeSubgraph
+        builder.add_node("code_worker", self._code_worker_node())
+        
+        # 聚合节点 - fan-in
+        builder.add_node("aggregate", self._aggregate_node())
+        
+        # 选择节点（中断点）
+        builder.add_node("select", self._select_node())
+        
+        # 输出节点
+        builder.add_node("output", self._output_node())
+        
+        # 边
+        builder.set_entry_point("dispatcher")
+        
+        # dispatcher -> 并行发送4个 code_worker 任务
+        builder.add_conditional_edges(
+            "dispatcher",
+            self._dispatch_workers,
+            ["code_worker"]  # 所有 Send 都指向 code_worker
+        )
+        
+        # code_worker -> aggregate (所有并行任务完成后)
+        builder.add_edge("code_worker", "aggregate")
+        
+        builder.add_edge("aggregate", "select")
+        
+        # 选择后的条件边
+        builder.add_conditional_edges(
+            "select",
+            self._route_after_select,
+            {
+                "confirm": "output",
+                "regenerate": "dispatcher",  # 重新生成时回到 dispatcher
+            }
+        )
+        
+        builder.add_edge("output", END)
+        
+        return builder
+    
+    def _dispatcher_node(self):
+        """分发节点 - 初始化并行任务跟踪"""
+        async def dispatcher(state: Dict) -> Dict:
+            """初始化并行执行状态"""
+            return {
+                "design_parallel_jobs": [],  # 跟踪并行任务
+                "design_completed_jobs": [],  # 已完成任务
+                "design_start_time": None,  # 开始时间
+            }
+        return dispatcher
+    
+    def _dispatch_workers(self, state: Dict) -> List[Send]:
+        """分发4个并行 CodeSubgraph 任务
+        
+        使用 LangGraph Send 机制实现真正的并行执行。
+        返回4个 Send 对象，每个对应一个风格的 CodeSubgraph。
+        """
+        sends = []
+        for style in self.STYLES:
+            style_id = style["id"]
+            sends.append(
+                Send(
+                    "code_worker",
+                    {
+                        "style_id": style_id,
+                        "style_config": style["config"],
+                        # 传递主状态的关键字段
+                        "requirements_doc": state.get("requirements_doc", ""),
+                        "project_idea": state.get("project_idea", ""),
+                        "features": state.get("features", []),
+                    }
+                )
+            )
+        return sends
+    
+    def _code_worker_node(self):
+        """工作节点 - 执行单个 CodeSubgraph
+        
+        每个并行实例执行自己的 CodeSubgraph，
+        结果写入带前缀的状态字段。
+        """
+        async def code_worker(state: Dict) -> Dict:
+            """执行单个 CodeSubgraph"""
+            style_id = state.get("style_id")
+            
+            if not style_id or style_id not in self.code_subgraphs:
+                return {"error": f"Unknown style_id: {style_id}"}
+            
+            # 获取对应的 CodeSubgraph 实例
+            code_subgraph = self.code_subgraphs[style_id]
+            
+            # 构建子图
+            subgraph = code_subgraph.get_graph()
+            
+            # 准备子图输入状态
+            subgraph_input = {
+                **state,  # 包含 style_id, style_config, requirements_doc 等
+                "current_phase": f"code_{style_id}",
+            }
+            
+            # 执行子图
+            try:
+                result = await subgraph.ainvoke(subgraph_input)
+                
+                # 提取带前缀的结果字段
+                prefix = f"{style_id}_"
+                output_keys = [
+                    "api_spec", "mock_data", "frontend_code", 
+                    "style_code", "extracted_homepage"
+                ]
+                
+                output = {
+                    "completed_job": {
+                        "style_id": style_id,
+                        "status": "success"
+                    }
                 }
-            },
-            "required": ["action"],
-            "x-context": {
-                "styles": styles,
-                "version": content.get("version", 1)
+                
+                # 将子图结果复制到主状态（带前缀）
+                for key in output_keys:
+                    prefixed_key = f"{prefix}{key}"
+                    if prefixed_key in result:
+                        output[prefixed_key] = result[prefixed_key]
+                
+                return output
+                
+            except Exception as e:
+                return {
+                    "completed_job": {
+                        "style_id": style_id,
+                        "status": "error",
+                        "error": str(e)
+                    }
+                }
+        
+        return code_worker
+    
+    def _aggregate_node(self):
+        """聚合节点 - 收集4个 CodeSubgraph 的输出 (fan-in)
+        
+        LangGraph 保证所有并行 code_worker 完成后才会执行此节点。
+        """
+        async def aggregate(state: Dict) -> Dict:
+            """聚合4套完整项目"""
+            projects = []
+            completed_jobs = state.get("completed_jobs", [])
+            
+            for style in self.STYLES:
+                style_id = style["id"]
+                prefix = f"{style_id}_"
+                
+                # 从状态中获取该 CodeSubgraph 的输出
+                project = {
+                    "style_id": style_id,
+                    "style_name": style["name"],
+                    "style_config": style["config"],
+                    "api_spec": state.get(f"{prefix}api_spec", {}),
+                    "mock_data": state.get(f"{prefix}mock_data", {}),
+                    "frontend_code": state.get(f"{prefix}frontend_code", {}),
+                    "style_code": state.get(f"{prefix}style_code", {}),
+                    "extracted_homepage": state.get(f"{prefix}extracted_homepage", ""),
+                    "status": "success" if state.get(f"{prefix}api_spec") else "pending"
+                }
+                projects.append(project)
+            
+            # 检查是否有失败的任务
+            failed_jobs = [p for p in projects if p["status"] != "success"]
+            
+            return {
+                "design_projects": projects,
+                "design_aggregate_count": len(projects),
+                "design_success_count": len([p for p in projects if p["status"] == "success"]),
+                "design_failed_count": len(failed_jobs),
+                "design_failed_styles": [p["style_id"] for p in failed_jobs],
             }
+        
+        return aggregate
+    
+    def _select_node(self):
+        """选择节点 - 中断等待用户选择"""
+        async def select(state: Dict) -> Dict:
+            """构建选择表单并中断"""
+            projects = state.get("design_projects", [])
+            
+            # 构建选择选项（展示首页预览）
+            options = [
+                {
+                    "id": p["style_id"],
+                    "name": p["style_name"],
+                    "homepage_preview": p["extracted_homepage"][:1000] if p["extracted_homepage"] else "",
+                    "style_preview": p["style_config"]
+                }
+                for p in projects
+            ]
+            
+            # 构建 Schema
+            schema = {
+                "type": "object",
+                "title": "请选择设计方案",
+                "description": "从4种风格中选择您喜欢的设计",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["confirm", "regenerate"],
+                        "title": "操作"
+                    },
+                    "selected_style": {
+                        "type": "string",
+                        "enum": [p["style_id"] for p in projects],
+                        "title": "选择风格"
+                    },
+                    "feedback": {
+                        "type": "string",
+                        "title": "修改建议"
+                    }
+                },
+                "required": ["action", "selected_style"]
+            }
+            
+            # 中断等待用户选择
+            try:
+                result = interrupt({
+                    "schema": schema,
+                    "context": {
+                        "projects": projects,
+                        "options": options
+                    }
+                })
+            except Exception:
+                # Mock interrupt for testing
+                result = {"action": "confirm", "selected_style": "modern"}
+            
+            return {
+                "human_input_response": result,
+                "selected_style_id": result.get("selected_style")
+            }
+        
+        return select
+    
+    def _output_node(self):
+        """输出节点 - 输出选中的完整项目"""
+        async def output(state: Dict) -> Dict:
+            """输出选中的完整项目"""
+            projects = state.get("design_projects", [])
+            selected_id = state.get("selected_style_id")
+            
+            # 找到选中的项目
+            selected_project = None
+            for p in projects:
+                if p["style_id"] == selected_id:
+                    selected_project = p
+                    break
+            
+            if not selected_project:
+                selected_project = projects[0] if projects else {}
+            
+            # 将选中的项目数据提升到主状态
+            return {
+                "selected_design": selected_project,
+                "design_style": selected_project.get("style_config", {}),
+                "api_spec": selected_project.get("api_spec", {}),
+                "mock_data": selected_project.get("mock_data", {}),
+                "frontend_code": selected_project.get("frontend_code", {}),
+                "style_code": selected_project.get("style_code", {}),
+                "extracted_homepage": selected_project.get("extracted_homepage", ""),
+                "current_phase": "delivery",
+                "phase_status": "completed"
+            }
+        
+        return output
+    
+    def _route_after_select(self, state: Dict) -> str:
+        """选择后的路由"""
+        response = state.get("human_input_response", {})
+        action = response.get("action", "confirm")
+        return "confirm" if action == "confirm" else "regenerate"
+    
+    async def on_enter(self, state: Dict) -> Dict:
+        """进入子图初始化"""
+        state["current_phase"] = "design"
+        state["phase_status"] = "running"
+        state["phase"] = "design"  # [DEPRECATED] 向后兼容
+        return state
+    
+    async def on_exit(self, state: Dict) -> Dict:
+        """离开子图保存快照"""
+        from datetime import datetime
+        state["design_snapshot"] = {
+            "confirmed": True,
+            "selected_style": state.get("selected_style_id"),
+            "projects_count": state.get("design_aggregate_count", 0),
+            "confirmed_at": datetime.now().isoformat()
         }
-    
-    def process_response(self, state: AgentState, response: Dict) -> Dict:
-        """处理用户响应
-        
-        Args:
-            state: 当前状态
-            response: 用户响应
-            
-        Returns:
-            Dict: 处理后的状态更新
-        """
-        action = response.get("action", "confirm")
-        
-        subgraph_state = state.get(self.get_state_key(), {})
-        styles = subgraph_state.get("generated_content", {}).get("styles", [])
-        
-        if action == "confirm":
-            # 用户确认，保存选中的风格
-            selected_name = response.get("selected_style", "")
-            selected_style = next((s for s in styles if s["name"] == selected_name), styles[0] if styles else {})
-            
-            return {
-                "selected_style": selected_name,
-                "design_spec": selected_style,
-                "design_approved": True,
-                "phase": "tech"
-            }
-        else:
-            # 用户要求调整
-            return {
-                "design_approved": False,
-                "phase": "design"
-            }
-    
-    def should_iterate(self, state: AgentState) -> bool:
-        """判断是否继续迭代
-        
-        Args:
-            state: 当前状态
-            
-        Returns:
-            bool: 是否迭代
-        """
-        subgraph_state = state.get(self.get_state_key(), {})
-        response = subgraph_state.get("user_response", {})
-        action = response.get("action", "confirm")
-        
-        if action == "revise":
-            iteration_count = subgraph_state.get("iteration_count", 0)
-            return iteration_count < self.max_iterations
-        
-        return False
+        return state

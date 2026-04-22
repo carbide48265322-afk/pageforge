@@ -13,7 +13,7 @@ async def human_input_node(state: AgentState) -> dict:
     
     checkpoint_manager = CheckpointManager()
     session_id = state["session_id"]
-    phase = state.get("phase", "unknown")
+    phase = state.get("current_phase") or state.get("phase", "unknown")
     
     # 根据阶段生成不同的 Schema
     if phase == "prd_confirm":
@@ -63,5 +63,6 @@ async def human_input_node(state: AgentState) -> dict:
         "human_input_pending": True,
         "human_input_checkpoint_id": request["checkpoint_id"],
         "human_input_request": request,
-        "status": "waiting_human"
+        "phase_status": "waiting_human",
+        "phase": phase,  # [DEPRECATED] 向后兼容
     }

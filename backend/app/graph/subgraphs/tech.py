@@ -263,5 +263,7 @@ class TechSubgraph(DebateVotingSubgraph):
             self.get_state_key(): subgraph_state,
             "tech_spec": proposal,
             "tech_approved": True,
-            "phase": "feature"
+            "current_phase": "feature",
+            "phase": "feature",  # [DEPRECATED] 向后兼容
+            "phase_status": "running",
         }

@@ -269,8 +269,12 @@ async def start_node(state: AgentState) -> dict:
     
     return {
         "project_config": project_config,
-        "stage": "start",
-        "task_list": [{"action": "create", "target": user_message, "details": "Initial project setup"}]
+        "stage": "start",  # [DEPRECATED]
+        "task_list": [{"action": "create", "target": user_message, "details": "Initial project setup"}],  # [DEPRECATED]
+        "current_phase": "requirement",
+        "phase": "requirement",  # [DEPRECATED] 向后兼容
+        "phase_status": "running",
+        "phase_history": [],
     }
 
 
