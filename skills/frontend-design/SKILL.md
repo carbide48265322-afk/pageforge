@@ -1,42 +1,82 @@
 ---
 name: frontend-design
-description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.
-license: Complete terms in LICENSE.txt
+description: React 项目工程规范。定义项目结构、代码风格、组件约定和 Tailwind CSS 使用规范，确保生成的代码可维护、可构建。
 ---
 
-This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic "AI slop" aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.
+# frontend-design — React 项目工程规范
 
-The user provides frontend requirements: a component, page, application, or interface to build. They may include context about the purpose, audience, or technical constraints.
+本 Skill 定义 PageForge 生成的 React 项目的技术规范，确保代码结构统一、可维护、可构建。
 
-## Design Thinking
+## 技术栈（固定）
 
-Before coding, understand the context and commit to a BOLD aesthetic direction:
-- **Purpose**: What problem does this interface solve? Who uses it?
-- **Tone**: Pick an extreme: brutally minimal, maximalist chaos, retro-futuristic, organic/natural, luxury/refined, playful/toy-like, editorial/magazine, brutalist/raw, art deco/geometric, soft/pastel, industrial/utilitarian, etc. There are so many flavors to choose from. Use these for inspiration but design one that is true to the aesthetic direction.
-- **Constraints**: Technical requirements (framework, performance, accessibility).
-- **Differentiation**: What makes this UNFORGETTABLE? What's the one thing someone will remember?
+- React 18+ 函数组件 + Hooks
+- TypeScript（strict 模式）
+- Vite 构建
+- Tailwind CSS 样式
 
-**CRITICAL**: Choose a clear conceptual direction and execute it with precision. Bold maximalism and refined minimalism both work - the key is intentionality, not intensity.
+## 项目结构（固定）
 
-Then implement working code (HTML/CSS/JS, React, Vue, etc.) that is:
-- Production-grade and functional
-- Visually striking and memorable
-- Cohesive with a clear aesthetic point-of-view
-- Meticulously refined in every detail
+```
+src/
+├── main.tsx              # 入口，不要修改
+├── App.tsx               # 根组件，路由挂载点
+├── components/           # 可复用组件（PascalCase 命名）
+│   └── *.tsx
+├── pages/                # 页面级组件
+│   └── *.tsx
+├── hooks/                # 自定义 hooks
+│   └── use*.ts
+├── utils/                # 工具函数
+│   └── *.ts
+├── types/                # TypeScript 类型定义
+│   └── *.ts
+└── styles/
+    └── global.css        # Tailwind 指令 + CSS 变量
+```
 
-## Frontend Aesthetics Guidelines
+## 代码规范
 
-Focus on:
-- **Typography**: Choose fonts that are beautiful, unique, and interesting. Avoid generic fonts like Arial and Inter; opt instead for distinctive choices that elevate the frontend's aesthetics; unexpected, characterful font choices. Pair a distinctive display font with a refined body font.
-- **Color & Theme**: Commit to a cohesive aesthetic. Use CSS variables for consistency. Dominant colors with sharp accents outperform timid, evenly-distributed palettes.
-- **Motion**: Use animations for effects and micro-interactions. Prioritize CSS-only solutions for HTML. Use Motion library for React when available. Focus on high-impact moments: one well-orchestrated page load with staggered reveals (animation-delay) creates more delight than scattered micro-interactions. Use scroll-triggering and hover states that surprise.
-- **Spatial Composition**: Unexpected layouts. Asymmetry. Overlap. Diagonal flow. Grid-breaking elements. Generous negative space OR controlled density.
-- **Backgrounds & Visual Details**: Create atmosphere and depth rather than defaulting to solid colors. Add contextual effects and textures that match the overall aesthetic. Apply creative forms like gradient meshes, noise textures, geometric patterns, layered transparencies, dramatic shadows, decorative borders, custom cursors, and grain overlays.
+### 组件
+- 只使用函数组件 + Hooks，禁止 class 组件
+- 每个 .tsx 文件只导出一个主组件
+- 组件文件名 PascalCase（Header.tsx、HeroSection.tsx）
+- Props 必须定义 TypeScript interface，文件内导出
+- 组件必须有默认导出，类型可具名导出
 
-NEVER use generic AI-generated aesthetics like overused font families (Inter, Roboto, Arial, system fonts), cliched color schemes (particularly purple gradients on white backgrounds), predictable layouts and component patterns, and cookie-cutter design that lacks context-specific character.
+### 样式
+- 只使用 Tailwind CSS class，禁止内联 style
+- 复杂样式可提取到 CSS Modules（*.module.css）
+- 禁止硬编码颜色值，使用 Tailwind 自定义色或 CSS 变量
+- 响应式优先使用 Tailwind 断点（sm/md/lg/xl）
 
-Interpret creatively and make unexpected choices that feel genuinely designed for the context. No design should be the same. Vary between light and dark themes, different fonts, different aesthetics. NEVER converge on common choices (Space Grotesk, for example) across generations.
+### 命名
+- 组件文件：PascalCase（Header.tsx）
+- hooks 文件：camelCase + use 前缀（useData.ts）
+- 工具函数：camelCase（formatDate.ts）
+- 类型文件：PascalCase（ApiTypes.ts）
 
-**IMPORTANT**: Match implementation complexity to the aesthetic vision. Maximalist designs need elaborate code with extensive animations and effects. Minimalist or refined designs need restraint, precision, and careful attention to spacing, typography, and subtle details. Elegance comes from executing the vision well.
+### Import
+- 使用相对路径：`import { Header } from '../components/Header'`
+- React hooks 从 'react' 导入
+- 第三方库从包名直接导入
+- 禁止循环依赖
 
-Remember: Claude is capable of extraordinary creative work. Don't hold back, show what can truly be created when thinking outside the box and committing fully to a distinctive vision.
+## 脚手架已有文件（禁止生成/覆盖）
+
+以下文件由 `npm create vite` 和 `npx tailwindcss init` 生成，LLM 不得覆盖：
+
+- package.json
+- tsconfig.json / tsconfig.app.json / tsconfig.node.json
+- vite.config.ts
+- tailwind.config.js / tailwind.config.ts
+- postcss.config.js
+- index.html
+- src/main.tsx（除非有特殊需求）
+- src/vite-env.d.ts
+
+## 生成流程约束
+
+1. 先调用 get_project_context 获取当前项目文件树
+2. 检查已生成文件列表，避免重复和遗漏
+3. 生成文件时确保 import 路径与实际文件位置匹配
+4. 生成完毕后执行 npm run build 验证

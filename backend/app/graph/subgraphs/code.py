@@ -1,217 +1,515 @@
-"""CodeSubgraph - 代码生成子图
+"""代码生成子图 - 使用 LLM + Tool 生成真实 React 项目
 
-基于 PipelineReflectionSubgraph 实现：
-1. API设计 → [Reflection循环]
-2. DB Schema → [Reflection循环]
-3. 后端代码 → [Reflection循环]
-4. 前端代码 → [Reflection循环]
-5. 样式代码 → [Reflection循环]
-6. 质量检查
+基于 PipelineReflectionSubgraph 实现 5 阶段流水线：
+1. scaffold: 创建 Vite + React + TypeScript + Tailwind 脚手架
+2. generate: LLM 逐个生成组件/页面/hook 源码文件
+3. install: npm install 安装依赖
+4. build_verify: npm run build 验证，失败则 LLM 修复 → 重试（反思模式）
+5. finalize: 整理文件列表，输出 project_files
+
+依赖：
+- loader_node 已将 Skill + Tool 加载到 state（system_prompt, active_tools）
+- 使用 get_bound_llm(state) 获取绑定 Tool 的 LLM
+- 使用 REACT_PROJECT_TOOLS 中的 code_executor / write_file / read_file_content 等
 """
+import os
+import uuid
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from typing import Any, Dict, List
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 from app.graph.state import AgentState
-from app.config import llm
-from .pipeline import PipelineReflectionSubgraph, StageResult
+from app.graph.subgraphs.pipeline import PipelineReflectionSubgraph, StageResult
+from app.graph.loader_node import get_bound_llm, get_tool
+from app.config import DATA_DIR
+
+
+# 临时项目根目录
+PROJECTS_TEMP_DIR = DATA_DIR / "temp_projects"
 
 
 class CodeSubgraph(PipelineReflectionSubgraph):
-    """代码生成子图
-    
-    实现流水线式代码生成，每阶段包含自审迭代。
+    """代码生成子图 - LLM + Tool 生成 React 项目
+
+    继承 PipelineReflectionSubgraph，使用其流水线 + 阶段自审机制。
+
+    阶段：
+    - scaffold: 脚手架搭建（code_executor 执行 npm create vite）
+    - generate: LLM 生成源码文件（write_file 逐个写入）
+    - install: 安装依赖（code_executor 执行 npm install）
+    - build_verify: 构建验证（code_executor 执行 npm run build，失败自修复）
+    - finalize: 收尾整理
+
+    反思模式：仅 build_verify 阶段启用。
     """
-    
-    name = "code"
-    description = "代码生成与质量检查"
-    max_stage_iterations = 3
-    
-    # 定义流水线阶段
-    stages = ["api_design", "db_schema", "backend_code", "frontend_code", "style_code"]
-    
-    def execute_stage(self, state: AgentState, stage_name: str) -> Any:
-        """执行阶段
-        
-        Args:
-            state: 当前状态
-            stage_name: 阶段名称
-            
-        Returns:
-            Any: 阶段产出
+
+    def __init__(self, output_prefix: str = ""):
+        super().__init__(
+            name=f"code_{output_prefix}" if output_prefix else "code",
+            stages=["scaffold", "generate", "install", "build_verify", "finalize"],
+            max_iterations=3
+        )
+        self.output_prefix = output_prefix
+
+        # 确保临时目录存在
+        PROJECTS_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ========== PipelineReflectionSubgraph 抽象方法实现 ==========
+
+    async def execute_stage(self, state: AgentState, stage_name: str) -> Any:
+        """执行单个阶段
+
+        build_verify 阶段：如果是重试（非首次），先让 LLM 修复代码再构建。
         """
-        if stage_name == "api_design":
-            return self._api_design_agent(state)
-        elif stage_name == "db_schema":
-            return self._db_schema_agent(state)
-        elif stage_name == "backend_code":
-            return self._backend_code_agent(state)
-        elif stage_name == "frontend_code":
-            return self._frontend_code_agent(state)
-        elif stage_name == "style_code":
-            return self._style_code_agent(state)
-        return {}
-    
-    def review_stage(self, state: AgentState, stage_result: StageResult) -> Dict:
-        """自审阶段
-        
-        Args:
-            state: 当前状态
-            stage_result: 阶段执行结果
-            
-        Returns:
-            Dict: 自审结果
-        """
-        content = stage_result.output
-        stage_name = stage_result.stage_name
-        
-        prompt = f"""审查以下{stage_name}的质量：
+        # build_verify 阶段：如果是重试（非首次），先修复
+        if stage_name == "build_verify":
+            subgraph_state = self._get_subgraph_state(state)
+            current_iter = subgraph_state.get(self._current_iteration_key, 0)
 
-{content}
+            if current_iter > 0:
+                # 非首次，说明上次 build 失败，先修复
+                prev_results = subgraph_state.get(self._results_key, [])
+                prev_result = prev_results[-1] if prev_results else None
+                if prev_result and hasattr(prev_result, 'output'):
+                    build_log = prev_result.output.get("build_log", "")
+                    if build_log:
+                        await self._fix_build_errors(state, build_log)
 
-请检查：
-1. 完整性
-2. 规范性
-3. 潜在问题
+            return await self._stage_build_verify(state)
 
-如有问题请指出，否则返回"通过"。"""
-        
-        response = llm.invoke([
-            SystemMessage(content="你是一位代码审查专家。"),
-            HumanMessage(content=prompt),
-        ])
-        
-        feedback = response.content
-        passed = "通过" in feedback or "pass" in feedback.lower()
-        
-        return {
-            "passed": passed,
-            "feedback": feedback,
-            "issues": [] if passed else [feedback]
+        # 其他阶段：直接执行
+        handlers = {
+            "scaffold": self._stage_scaffold,
+            "generate": self._stage_generate,
+            "install": self._stage_install,
+            "finalize": self._stage_finalize,
         }
-    
-    def _api_design_agent(self, state: AgentState) -> Dict:
-        """API设计Agent"""
-        requirements = state.get("requirements_doc", "")
-        
-        prompt = f"""基于以下需求设计RESTful API：
 
-{requirements}
+        handler = handlers.get(stage_name)
+        if handler:
+            return await handler(state)
 
-请提供：
-1. API端点列表
-2. 请求/响应格式
-3. 认证方式"""
-        
-        response = llm.invoke([
-            SystemMessage(content="你是一位API设计专家。"),
-            HumanMessage(content=prompt),
-        ])
-        
-        return {"api_spec": response.content}
-    
-    def _db_schema_agent(self, state: AgentState) -> Dict:
-        """DB Schema设计Agent"""
-        api_spec = state.get("api_spec", "")
-        
-        prompt = f"""基于以下API设计数据库Schema：
+        return {"error": f"Unknown stage: {stage_name}"}
 
-{api_spec}
+    async def review_stage(self, state: AgentState, stage_result: StageResult) -> Dict:
+        """自审阶段产出
 
-请提供：
-1. 数据表结构
-2. 字段定义
-3. 关系设计"""
-        
-        response = llm.invoke([
-            SystemMessage(content="你是一位数据库设计专家。"),
-            HumanMessage(content=prompt),
-        ])
-        
-        return {"db_schema": response.content}
-    
-    def _backend_code_agent(self, state: AgentState) -> Dict:
-        """后端代码生成Agent"""
-        api_spec = state.get("api_spec", "")
-        db_schema = state.get("db_schema", "")
-        tech_spec = state.get("tech_spec", {})
-        
-        prompt = f"""基于以下规范生成后端代码：
-
-API规范：
-{api_spec}
-
-数据库Schema：
-{db_schema}
-
-技术方案：
-{tech_spec}
-
-请生成完整的后端代码。"""
-        
-        response = llm.invoke([
-            SystemMessage(content="你是一位后端开发专家。"),
-            HumanMessage(content=prompt),
-        ])
-        
-        return {"backend_code": response.content}
-    
-    def _frontend_code_agent(self, state: AgentState) -> Dict:
-        """前端代码生成Agent"""
-        requirements = state.get("requirements_doc", "")
-        design_spec = state.get("design_spec", {})
-        api_spec = state.get("api_spec", "")
-        
-        prompt = f"""基于以下规范生成前端代码：
-
-需求：
-{requirements}
-
-设计规范：
-{design_spec}
-
-API规范：
-{api_spec}
-
-请生成完整的前端代码。"""
-        
-        response = llm.invoke([
-            SystemMessage(content="你是一位前端开发专家。"),
-            HumanMessage(content=prompt),
-        ])
-        
-        return {"frontend_code": response.content}
-    
-    def _style_code_agent(self, state: AgentState) -> Dict:
-        """样式代码生成Agent"""
-        design_spec = state.get("design_spec", {})
-        frontend_code = state.get("frontend_code", "")
-        
-        prompt = f"""基于以下规范生成样式代码：
-
-设计规范：
-{design_spec}
-
-前端代码：
-{frontend_code}
-
-请生成CSS/Tailwind样式代码。"""
-        
-        response = llm.invoke([
-            SystemMessage(content="你是一位CSS/样式专家。"),
-            HumanMessage(content=prompt),
-        ])
-        
-        return {"style_code": response.content}
-    
-    def aggregate_outputs(self, stage_results: List[StageResult]) -> Any:
-        """聚合各阶段输出
-        
-        Returns:
-            Dict: 最终项目文件
+        只有 build_verify 阶段需要真正的反思。
+        其他阶段直接通过。
         """
-        result = {}
-        for stage_result in stage_results:
-            if isinstance(stage_result.output, dict):
-                result.update(stage_result.output)
-        return result
+        stage_name = stage_result.stage_name
+        output = stage_result.output
+
+        # 非 build_verify 阶段：直接通过
+        if stage_name != "build_verify":
+            return {
+                "passed": True,
+                "feedback": "",
+                "issues": [],
+            }
+
+        # build_verify 阶段：检查构建结果
+        build_success = output.get("build_success", False) if isinstance(output, dict) else False
+        build_log = output.get("build_log", "") if isinstance(output, dict) else ""
+
+        if build_success:
+            return {
+                "passed": True,
+                "feedback": "构建成功",
+                "issues": [],
+            }
+
+        return {
+            "passed": False,
+            "feedback": f"构建失败，需要修复：\n{build_log[-2000:]}",
+            "issues": [build_log[-1000:]],
+        }
+
+    def on_stage_complete(self, stage_result: StageResult) -> None:
+        """阶段完成回调"""
+        print(f"[CodeSubgraph] 阶段 {stage_result.stage_name} 完成，"
+              f"迭代 {stage_result.iteration_count} 次")
+
+    def aggregate_outputs(self, stage_results: List[StageResult]) -> Any:
+        """聚合各阶段输出"""
+        return {
+            r.stage_name: r.output
+            for r in stage_results
+        }
+
+    # ========== 阶段实现 ==========
+
+    async def _stage_scaffold(self, state: AgentState) -> Dict:
+        """阶段1: 脚手架搭建
+
+        1. 创建临时项目目录
+        2. 用 code_executor 执行 npm create vite@latest
+        3. 配置 Tailwind CSS
+        """
+        # 创建项目目录
+        project_id = uuid.uuid4().hex[:8]
+        project_name = f"project_{project_id}"
+        workdir = str(PROJECTS_TEMP_DIR / project_name)
+        os.makedirs(workdir, exist_ok=True)
+
+        # 获取 code_executor tool
+        code_executor = get_tool("code_executor")
+        if not code_executor:
+            return {
+                "workdir": workdir,
+                "scaffold_success": False,
+                "scaffold_log": "code_executor tool not found",
+            }
+
+        # 执行 npm create vite
+        scaffold_cmd = "npm create vite@latest . -- --template react-ts"
+        try:
+            scaffold_result = await code_executor.ainvoke({
+                "command": scaffold_cmd,
+                "cwd": workdir,
+            })
+            scaffold_result_str = str(scaffold_result)
+        except Exception as e:
+            scaffold_result_str = str(e)
+
+        # 检查脚手架是否创建成功
+        scaffold_success = "[ERROR]" not in scaffold_result_str and "package.json" in scaffold_result_str
+
+        # 安装 Tailwind CSS
+        tailwind_result_str = ""
+        if scaffold_success:
+            tailwind_cmd = "npm install -D tailwindcss @tailwindcss/vite"
+            try:
+                tailwind_result = await code_executor.ainvoke({
+                    "command": tailwind_cmd,
+                    "cwd": workdir,
+                })
+                tailwind_result_str = str(tailwind_result)
+            except Exception as e:
+                tailwind_result_str = str(e)
+
+            # 更新 vite.config.ts 添加 tailwindcss 插件
+            vite_config_path = os.path.join(workdir, "vite.config.ts")
+            write_file_tool = get_tool("write_file")
+            if write_file_tool and os.path.exists(vite_config_path):
+                try:
+                    await write_file_tool.ainvoke({
+                        "file_path": vite_config_path,
+                        "content": (
+                            "import { defineConfig } from 'vite'\n"
+                            "import react from '@vitejs/plugin-react'\n"
+                            "import tailwindcss from '@tailwindcss/vite'\n\n"
+                            "export default defineConfig({\n"
+                            "  plugins: [\n"
+                            "    react(),\n"
+                            "    tailwindcss(),\n"
+                            "  ],\n"
+                            "})\n"
+                        ),
+                    })
+                except Exception:
+                    pass
+
+            # 更新 src/index.css
+            index_css_path = os.path.join(workdir, "src", "index.css")
+            if write_file_tool and os.path.exists(os.path.dirname(index_css_path)):
+                try:
+                    await write_file_tool.ainvoke({
+                        "file_path": index_css_path,
+                        "content": "@import \"tailwindcss\";\n",
+                    })
+                except Exception:
+                    pass
+
+        return {
+            "workdir": workdir,
+            "scaffold_success": scaffold_success,
+            "scaffold_log": scaffold_result_str,
+            "tailwind_log": tailwind_result_str,
+        }
+
+    async def _stage_generate(self, state: AgentState) -> Dict:
+        """阶段2: LLM 生成源码文件
+
+        使用 ReAct 模式：LLM 带着已绑定 Tool 的实例，
+        根据需求文档（PRD）和设计风格，逐个生成组件文件。
+        """
+        workdir = self._get_workdir(state)
+        if not workdir:
+            return {"error": "无项目工作目录，scaffold 阶段未完成"}
+
+        # 获取 LLM（已绑定 Tool）
+        bound_llm = get_bound_llm(state)
+
+        # 构造 prompt
+        prd = state.get("requirements_doc", "")
+        design_style = state.get("design_style", {})
+        system_prompt = state.get("system_prompt", "")
+
+        generate_prompt = f"""{system_prompt}
+
+## 当前任务：生成 React 项目源码
+
+### 用户需求（PRD）
+{prd}
+
+### 设计风格
+{design_style}
+
+### 项目工作目录
+{workdir}
+
+### 要求
+1. 先调用 get_project_context 查看当前项目结构
+2. 根据需求拆分组件（components/）、页面（pages/）、hooks/
+3. 逐个调用 write_file 生成文件
+4. 确保所有 import 路径正确
+5. 使用 Tailwind CSS class 做样式，禁止内联 style
+6. 文件命名 PascalCase（组件）、camelCase（工具函数）
+7. 所有组件必须使用 TypeScript + 函数组件 + hooks
+
+### 项目结构约定
+```
+src/
+├── components/     # 可复用组件
+├── pages/          # 页面组件
+├── hooks/          # 自定义 hooks
+├── utils/          # 工具函数
+├── types/          # TypeScript 类型定义
+├── App.tsx         # 根组件
+├── main.tsx        # 入口文件
+└── index.css       # Tailwind 入口
+```
+
+请开始生成代码。每次调用一个 Tool，逐步完成。
+"""
+
+        # LLM ReAct 循环
+        messages = [
+            SystemMessage(content=generate_prompt),
+            HumanMessage(content="请开始生成项目的 React 源码文件。"),
+        ]
+
+        generated_files: List[str] = []
+        max_tool_calls = 20  # 防止无限循环
+
+        for _ in range(max_tool_calls):
+            response = await bound_llm.ainvoke(messages)
+            messages.append(response)
+
+            # 检查是否有 tool_calls
+            if not response.tool_calls:
+                break
+
+            # 执行所有 tool_calls
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"]
+                tool = get_tool(tool_name)
+
+                if tool is None:
+                    messages.append(ToolMessage(
+                        content=f"工具 {tool_name} 不存在",
+                        tool_call_id=tool_call["id"],
+                    ))
+                    continue
+
+                try:
+                    tool_result = await tool.ainvoke(tool_call["args"])
+                    messages.append(ToolMessage(
+                        content=str(tool_result),
+                        tool_call_id=tool_call["id"],
+                    ))
+
+                    # 跟踪生成的文件
+                    if tool_name == "write_file":
+                        file_path = tool_call["args"].get("file_path", "")
+                        if file_path and workdir in file_path:
+                            rel_path = os.path.relpath(file_path, workdir)
+                            generated_files.append(rel_path)
+
+                except Exception as e:
+                    messages.append(ToolMessage(
+                        content=f"工具执行错误: {str(e)}",
+                        tool_call_id=tool_call["id"],
+                    ))
+
+        return {
+            "generated_files": generated_files,
+            "files_count": len(generated_files),
+        }
+
+    async def _stage_install(self, state: AgentState) -> Dict:
+        """阶段3: 安装依赖"""
+        workdir = self._get_workdir(state)
+        if not workdir:
+            return {"install_success": False, "install_log": "无工作目录"}
+
+        code_executor = get_tool("code_executor")
+        if not code_executor:
+            return {"install_success": False, "install_log": "code_executor tool not found"}
+
+        try:
+            result = await code_executor.ainvoke({
+                "command": "npm install",
+                "cwd": workdir,
+            })
+            result_str = str(result)
+        except Exception as e:
+            result_str = str(e)
+
+        install_success = "[ERROR]" not in result_str
+
+        return {
+            "install_success": install_success,
+            "install_log": result_str,
+        }
+
+    async def _stage_build_verify(self, state: AgentState) -> Dict:
+        """阶段4: 构建验证
+
+        执行 npm run build，验证代码能否编译通过。
+        失败时 review_stage 会返回 passed=False，
+        触发反思循环：LLM 分析报错 → 修复代码 → 重新 build。
+        """
+        workdir = self._get_workdir(state)
+        if not workdir:
+            return {"build_success": False, "build_log": "无工作目录"}
+
+        code_executor = get_tool("code_executor")
+        if not code_executor:
+            return {"build_success": False, "build_log": "code_executor tool not found"}
+
+        try:
+            result = await code_executor.ainvoke({
+                "command": "npm run build",
+                "cwd": workdir,
+            })
+            result_str = str(result)
+        except Exception as e:
+            result_str = str(e)
+
+        build_success = "[ERROR]" not in result_str
+
+        return {
+            "build_success": build_success,
+            "build_log": result_str,
+            "workdir": workdir,
+        }
+
+    async def _stage_finalize(self, state: AgentState) -> Dict:
+        """阶段5: 收尾整理
+
+        1. 收集所有生成的文件
+        2. 整理 project_files {相对路径: 内容}
+        3. 更新主状态
+        """
+        workdir = self._get_workdir(state)
+        if not workdir:
+            return {"error": "无工作目录"}
+
+        # 收集所有文件（排除 node_modules、dist）
+        project_files: Dict[str, str] = {}
+        skip_dirs = {"node_modules", "dist", ".git", "__pycache__"}
+
+        for root, dirs, files in os.walk(workdir):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for file in sorted(files):
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, workdir)
+                try:
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        project_files[rel_path] = f.read()
+                except Exception:
+                    pass  # 跳过二进制文件
+
+        return {
+            "project_files": project_files,
+            "files_count": len(project_files),
+            "completed_at": datetime.now().isoformat(),
+        }
+
+    # ========== 构建失败自修复（反思模式专用） ==========
+
+    async def _fix_build_errors(self, state: AgentState, build_log: str) -> Dict:
+        """构建失败时 LLM 分析报错并修复代码
+
+        在 review_stage 返回 passed=False 后，
+        execute_stage 会重新执行 build_verify 阶段。
+        但在重新 build 之前，需要先让 LLM 修复代码。
+        """
+        workdir = self._get_workdir(state)
+        if not workdir:
+            return {"fix_success": False}
+
+        bound_llm = get_bound_llm(state)
+
+        fix_prompt = f"""构建失败，请分析报错并修复代码。
+
+## 构建日志
+{build_log[-3000:]}
+
+## 项目工作目录
+{workdir}
+
+## 要求
+1. 仔细分析构建错误
+2. 调用 read_file_content 查看相关源文件
+3. 调用 write_file 修复错误的文件
+4. 只修复导致构建失败的问题，不要做其他改动
+"""
+
+        messages = [
+            SystemMessage(content=fix_prompt),
+            HumanMessage(content="请开始修复构建错误。"),
+        ]
+
+        max_tool_calls = 10
+        for _ in range(max_tool_calls):
+            response = await bound_llm.ainvoke(messages)
+            messages.append(response)
+
+            if not response.tool_calls:
+                break
+
+            for tool_call in response.tool_calls:
+                tool = get_tool(tool_call["name"])
+                if tool is None:
+                    messages.append(ToolMessage(
+                        content=f"工具 {tool_call['name']} 不存在",
+                        tool_call_id=tool_call["id"],
+                    ))
+                    continue
+
+                try:
+                    tool_result = await tool.ainvoke(tool_call["args"])
+                    messages.append(ToolMessage(
+                        content=str(tool_result),
+                        tool_call_id=tool_call["id"],
+                    ))
+                except Exception as e:
+                    messages.append(ToolMessage(
+                        content=f"错误: {str(e)}",
+                        tool_call_id=tool_call["id"],
+                    ))
+
+        return {"fix_success": True}
+
+    # ========== 辅助方法 ==========
+
+    def _get_workdir(self, state: AgentState) -> Optional[str]:
+        """从状态中获取项目工作目录"""
+        # 先检查主状态
+        workdir = state.get("project_workdir")
+
+        # 从子图私有状态获取（scaffold 阶段产出）
+        if not workdir:
+            subgraph_state = self._get_subgraph_state(state)
+            results = subgraph_state.get(self._results_key, [])
+            for r in results:
+                if hasattr(r, 'output') and isinstance(r.output, dict):
+                    workdir = r.output.get("workdir")
+                    if workdir:
+                        break
+
+        return workdir

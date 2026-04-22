@@ -113,7 +113,6 @@ class DesignSubgraph(BaseSubgraph[Dict]):
         # 创建4个 CodeSubgraph 实例，每个绑定不同风格
         self.code_subgraphs = {
             style["id"]: CodeSubgraph(
-                style_config=style["config"],
                 output_prefix=f"{style['id']}_"
             )
             for style in self.STYLES
@@ -205,6 +204,11 @@ class DesignSubgraph(BaseSubgraph[Dict]):
                         "requirements_doc": state.get("requirements_doc", ""),
                         "project_idea": state.get("project_idea", ""),
                         "features": state.get("features", []),
+                        # 确保 CodeSubgraph 能获取 Skill/Tool
+                        "system_prompt": state.get("system_prompt", ""),
+                        "active_tools": state.get("active_tools", []),
+                        "loaded_skills": state.get("loaded_skills", []),
+                        "project_type": state.get("project_type", ""),
                     }
                 )
             )

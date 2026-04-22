@@ -2,7 +2,7 @@
 
 基于 HumanInTheLoopSubgraph 实现：
 1. 安全扫描
-2. 构建预览环境
+2. 构建交付摘要
 3. 用户预览体验
 4. 确认交付 / 返回修改
 5. 输出交付物
@@ -29,38 +29,31 @@ class DeliverySubgraph(HumanInTheLoopSubgraph):
     def generate_content(self, state: AgentState) -> Dict:
         """生成交付预览内容
         
-        Args:
-            state: 当前状态
-            
-        Returns:
-            Dict: 交付预览内容
+        从 CodeSubgraph 输出的 React 项目文件生成交付摘要。
         """
-        # 从主状态读取CodeSubgraph输出
-        project_files = {
-            "api_spec": state.get("api_spec", ""),
-            "mock_data": state.get("mock_data", ""),
-            "frontend_code": state.get("frontend_code", ""),
-            "style_code": state.get("style_code", "")
-        }
-        
+        # 从主状态读取 CodeSubgraph 输出的 React 项目文件
+        project_files = state.get("project_files", {})
+        build_success = state.get("build_success", False)
+        files_count = len(project_files) if project_files else 0
+
         # 安全扫描（简化实现）
         security_report = self._security_scan(project_files)
         
-        # 组装完整项目
-        assembled_project = self._assemble_project(project_files)
-        
         # 生成交付摘要
-        prompt = f"""基于以下前端项目生成交付摘要：
+        file_list = "\n".join(f"- {k}" for k in sorted(project_files.keys())) if project_files else "(无文件)"
+        
+        prompt = f"""基于以下 React 项目生成交付摘要：
 
-API设计：{project_files['api_spec'][:500]}...
-前端代码：{project_files['frontend_code'][:500]}...
-样式代码：{project_files['style_code'][:300]}...
+项目文件数量：{files_count}
+构建状态：{'成功' if build_success else '失败'}
+文件列表：
+{file_list}
 
 请提供：
 1. 项目概述
 2. 主要功能
-3. 技术栈
-4. 预览说明"""
+3. 技术栈（Vite + React + TypeScript + Tailwind CSS）
+4. 使用说明（npm install && npm run dev）"""
         
         response = llm.invoke([
             SystemMessage(content="你是一位技术文档专家。"),
@@ -72,64 +65,17 @@ API设计：{project_files['api_spec'][:500]}...
             "security_report": security_report,
             "preview_url": "#preview",
             "project_files": project_files,
-            "assembled_project": assembled_project
+            "build_success": build_success,
         }
     
     def _security_scan(self, files: Dict) -> Dict:
         """安全扫描（简化实现）"""
-        # 实际实现应调用安全扫描工具
         return {
             "status": "passed",
             "issues": [],
             "score": 95
         }
-    
-    def _assemble_project(self, project_files: Dict) -> Dict:
-        """组装完整项目
-        
-        Args:
-            project_files: 各阶段代码文件
-            
-        Returns:
-            Dict: 组装后的项目结构
-        """
-        # 组装为可运行的前端项目
-        return {
-            "index.html": self._generate_index_html(project_files),
-            "style.css": project_files.get("style_code", ""),
-            "app.js": self._generate_app_js(project_files),
-            "mock.js": project_files.get("mock_data", "")
-        }
-    
-    def _generate_index_html(self, project_files: Dict) -> str:
-        """生成入口HTML"""
-        return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generated Project</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <div id="app"></div>
-    <script src="mock.js"></script>
-    <script src="app.js"></script>
-</body>
-</html>"""
-    
-    def _generate_app_js(self, project_files: Dict) -> str:
-        """生成应用JS（整合前端代码）"""
-        frontend_code = project_files.get("frontend_code", "")
-        # 简单包装，实际可能需要更复杂的处理
-        return f"""// Generated App
-{frontend_code}
 
-// Initialize
-if (typeof initApp === 'function') {{
-    initApp();
-}}"""
-    
     def to_schema(self, content: Dict) -> Dict:
         """转换为交付确认表单 Schema
         
@@ -162,7 +108,8 @@ if (typeof initApp === 'function') {{
                 "summary": content.get("delivery_summary", ""),
                 "security": content.get("security_report", {}),
                 "preview_url": content.get("preview_url", ""),
-                "project": content.get("assembled_project", {})
+                "project_files_count": len(content.get("project_files", {})),
+                "build_success": content.get("build_success", False),
             }
         }
     

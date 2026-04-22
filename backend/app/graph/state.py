@@ -118,11 +118,19 @@ class AgentState(TypedDict):
     feature_approved: bool                     # 功能选择是否已确认
 
     # ---- 代码生成阶段 ----
-    api_spec: Optional[Dict[str, Any]]         # API 规范
-    mock_data: Optional[Dict[str, Any]]        # Mock 数据
-    frontend_code: Optional[Dict[str, Any]]    # 前端代码
-    style_code: Optional[Dict[str, Any]]       # 样式代码
-    extracted_homepage: Optional[str]          # 提取的首页HTML
+    # [新] React 项目生成状态
+    project_workdir: Optional[str]               # 项目工作目录绝对路径
+    generated_files_list: List[str]              # 已生成文件路径列表
+    build_log: Optional[str]                     # 构建日志（成功/失败）
+    build_success: bool                          # 构建是否通过
+    code_iteration_count: int                    # 当前构建重试次数
+
+    # [旧 — 保留但不使用，后续清理]
+    api_spec: Optional[Dict[str, Any]]           # [DEPRECATED]
+    mock_data: Optional[Dict[str, Any]]          # [DEPRECATED]
+    frontend_code: Optional[Dict[str, Any]]      # [DEPRECATED]
+    style_code: Optional[Dict[str, Any]]         # [DEPRECATED]
+    extracted_homepage: Optional[str]            # [DEPRECATED]
 
     # ---- 交付阶段 ----
     delivery_approved: bool                    # 交付是否已确认
@@ -132,6 +140,12 @@ class AgentState(TypedDict):
     human_input_pending: bool                  # 是否等待用户输入
     human_input_checkpoint_id: Optional[str]   # 当前人机协作检查点ID
     human_input_request: Optional[Dict]        # 人机协作请求体
+
+    # ---- Skill & Tool 加载 ----
+    loaded_skills: List[str]                   # 已加载的 Skill 名称列表
+    system_prompt: str                         # 合并后的 Skill 系统提示词
+    active_tools: List[str]                    # 已绑定的 Tool 名称列表
+    project_type: Optional[str]                # 项目类型: commerce/dashboard/saas-landing/content/portfolio/corporate
 
     # ---- 输出 ----
     response_message: str                      # 回复消息

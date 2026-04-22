@@ -136,7 +136,7 @@ class PipelineReflectionSubgraph(BaseSubgraph):
         
         return {self.get_state_key(): subgraph_state}
     
-    def _execute_stage_node(self, state: AgentState) -> Dict:
+    async def _execute_stage_node(self, state: AgentState) -> Dict:
         """执行当前阶段"""
         subgraph_state = self._get_subgraph_state(state)
         
@@ -146,8 +146,8 @@ class PipelineReflectionSubgraph(BaseSubgraph):
         # 更新状态
         subgraph_state[self._status_key] = f"executing_{stage_name}"
         
-        # 执行阶段
-        output = self.execute_stage(state, stage_name)
+        # 执行阶段（await 支持异步子类实现）
+        output = await self.execute_stage(state, stage_name)
         
         # 更新阶段结果
         stage_results = subgraph_state[self._results_key]
@@ -158,7 +158,7 @@ class PipelineReflectionSubgraph(BaseSubgraph):
         
         return {self.get_state_key(): subgraph_state}
     
-    def _review_stage_node(self, state: AgentState) -> Dict:
+    async def _review_stage_node(self, state: AgentState) -> Dict:
         """自审当前阶段"""
         subgraph_state = self._get_subgraph_state(state)
         
@@ -168,8 +168,8 @@ class PipelineReflectionSubgraph(BaseSubgraph):
         
         subgraph_state[self._status_key] = f"reviewing_{stage_result.stage_name}"
         
-        # 自审
-        review_result = self.review_stage(state, stage_result)
+        # 自审（await 支持异步子类实现）
+        review_result = await self.review_stage(state, stage_result)
         
         # 更新阶段结果
         stage_result.review_feedback = review_result.get("feedback")
