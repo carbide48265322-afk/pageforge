@@ -122,6 +122,9 @@ class FeatureSubgraph(SelectionSubgraph):
         subgraph_state[self._status_key] = "completed"
         
         # 更新主状态
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        history = state.get("phase_history", [])
         return {
             self.get_state_key(): subgraph_state,
             "project_mode": selected_mode,
@@ -131,4 +134,17 @@ class FeatureSubgraph(SelectionSubgraph):
             "current_phase": "code",
             "phase": "code",  # [DEPRECATED] 向后兼容
             "phase_status": "running",
+            "feature_snapshot": {
+                "confirmed": True,
+                "project_mode": selected_mode,
+                "selected_features": default_features,
+                "all_features": all_features,
+                "confirmed_at": now,
+            },
+            "phase_history": history + [{
+                "from_phase": "feature",
+                "to_phase": "code",
+                "trigger": "user_confirmed",
+                "timestamp": now,
+            }],
         }

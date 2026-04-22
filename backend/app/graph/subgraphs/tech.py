@@ -259,6 +259,9 @@ class TechSubgraph(DebateVotingSubgraph):
         subgraph_state[self._status_key] = "completed"
         
         # 更新主状态，进入下一阶段
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        history = state.get("phase_history", [])
         return {
             self.get_state_key(): subgraph_state,
             "tech_spec": proposal,
@@ -266,4 +269,16 @@ class TechSubgraph(DebateVotingSubgraph):
             "current_phase": "feature",
             "phase": "feature",  # [DEPRECATED] 向后兼容
             "phase_status": "running",
+            "tech_snapshot": {
+                "confirmed": True,
+                "combined_proposal": proposal,
+                "vote_summary": result.vote_count if result else {},
+                "confirmed_at": now,
+            },
+            "phase_history": history + [{
+                "from_phase": "tech",
+                "to_phase": "feature",
+                "trigger": "auto",
+                "timestamp": now,
+            }],
         }

@@ -136,12 +136,27 @@ class RequirementSubgraph(HumanInTheLoopSubgraph):
         
         if action == "confirm":
             # 用户确认，保存 PRD 到主状态
+            from datetime import datetime
+            now = datetime.now().isoformat()
             return {
                 "requirements_doc": prd_content,
                 "requirements_approved": True,
                 "current_phase": "design",
                 "phase": "design",  # [DEPRECATED] 向后兼容
                 "phase_status": "running",
+                "requirement_snapshot": {
+                    "confirmed": True,
+                    "user_input": state.get("user_message", ""),
+                    "clarification_qa": [],
+                    "prd": prd_content,
+                    "confirmed_at": now,
+                },
+                "phase_history": state.get("phase_history", []) + [{
+                    "from_phase": "requirement",
+                    "to_phase": "design",
+                    "trigger": "user_confirmed",
+                    "timestamp": now,
+                }],
             }
         else:
             # 用户要求修改，保留反馈用于迭代
