@@ -88,15 +88,19 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
         return `blk_${blockIdRef.current}`;
     }, []);
 
-    /** 文本消费速率 */
+    /** 文本消费速率 - 基于缓冲区大小和时间的动态调整 */
     const getConsumeRate = useCallback(() => {
         const len = bufferRef.current.length;
-        if (len > 200) return 32;
-        if (len > 100) return 16;
-        if (len > 50) return 8;
-        if (len > 20) return 4;
-        if (len > 5) return 2;
-        return 1;
+        // 基于缓冲区大小的动态速率调整
+        // 缓冲区越大，消费速率越快，以追赶进度
+        // 缓冲区越小，消费速率越慢，以保持平滑的打字效果
+        if (len > 500) return 64;  // 大量数据，快速消费
+        if (len > 200) return 32;  // 较多数据，加速消费
+        if (len > 100) return 16;  // 中等数据，正常消费
+        if (len > 50) return 8;    // 少量数据，放缓消费
+        if (len > 20) return 4;    // 很少数据，慢速消费
+        if (len > 5) return 2;     // 几乎没有数据，极慢消费
+        return 1;                  // 无数据，最小消费
     }, []);
 
     /** 文本消费：追加到最后一个 text block */
@@ -144,15 +148,19 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
         }
     }, []);
 
-    /** 源码消费速率（比对话框快） */
+    /** 源码消费速率 - 基于缓冲区大小的动态调整 */
     const getStreamRate = useCallback(() => {
         const len = streamBufferRef.current.length;
-        if (len > 500) return 100;
-        if (len > 200) return 50;
-        if (len > 100) return 30;
-        if (len > 50) return 20;
-        if (len > 20) return 10;
-        return 5;
+        // 基于缓冲区大小的动态速率调整
+        // 缓冲区越大，消费速率越快，以追赶进度
+        // 缓冲区越小，消费速率越慢，以保持平滑的渲染效果
+        if (len > 1000) return 200;  // 大量数据，快速消费
+        if (len > 500) return 100;   // 较多数据，加速消费
+        if (len > 200) return 50;    // 中等数据，正常消费
+        if (len > 100) return 30;    // 少量数据，放缓消费
+        if (len > 50) return 20;     // 很少数据，慢速消费
+        if (len > 20) return 10;     // 几乎没有数据，极慢消费
+        return 5;                     // 无数据，最小消费
     }, []);
 
     /** 源码消费 */
