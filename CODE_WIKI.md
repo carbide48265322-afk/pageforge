@@ -2,14 +2,14 @@
 
 ## 1. 项目概述
 
-PageForge 是一个 AI 驱动的单文件 HTML 页面生成器，通过自然语言对话，自动生成、修改、验证完整的 HTML 页面。
+PageForge 是一个基于 LangGraph 的 6 阶段 AI 应用生成器，通过自然语言对话，经历需求、设计、技术选型、功能选择、代码生成、交付确认 6 个阶段，自动生成完整的 Web 应用。
 
 **核心功能：**
-- 通过自然语言对话生成完整的单文件 HTML 页面
-- 支持修改现有页面（基于历史版本）
-- 自动验证 HTML 结构和安全性
-- 版本管理（保存历史版本，支持回滚）
-- 实时预览生成结果
+- 6 阶段流水线：需求 → 设计 → 技术 → 功能 → 代码 → 交付
+- 多专家辩论投票选型（前端/后端/DevOps 专家辩论）
+- 4 种风格并行生成，用户选择方案
+- 人机协作闭环（JSON Schema 表单收集数据）
+- 阶段快照与回退机制
 - 支持技能（Skill）扩展系统
 
 ## 2. 技术栈
@@ -158,20 +158,51 @@ PageForge 采用前后端分离架构，通过 API 进行通信。后端基于 F
 - **说明**：定义工作流节点和边，构建完整的 AI 工作流程
 
 #### `AgentState` (backend/app/graph/state.py)
-- **功能**：定义 LangGraph 工作流的状态结构
-- **属性**：
-  - `user_message`：用户消息
-  - `session_id`：会话 ID
-  - `base_html`：基准 HTML
-  - `task_list`：任务列表
-  - `current_html`：当前 HTML
-  - `validation_errors`：验证错误
-  - `iteration_count`：迭代次数
-  - `fix_count`：修复次数
-  - `response_message`：响应消息
-  - `output_html`：输出 HTML
-  - `output_version`：输出版本
-  - `is_complete`：是否完成
+- **功能**：定义 LangGraph 工作流的状态结构（6 阶段 AI 应用生成器）
+- **说明**：采用渐进式重构策略，新字段和旧字段共存，旧字段标记 `[DEPRECATED]`
+
+**阶段快照类型（TypedDict）：**
+
+| 类型 | 用途 |
+| --- | --- |
+| `RequirementSnapshot` | 需求阶段确认后的快照 |
+| `DesignSnapshot` | 设计阶段确认后的快照 |
+| `TechSnapshot` | 技术方案确认后的快照 |
+| `FeatureSnapshot` | 功能选择确认后的快照 |
+| `CodeSnapshot` | 代码生成完成后的快照 |
+| `PhaseTransition` | 阶段转换记录 |
+
+**核心新字段：**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `current_phase` | `str` | 当前阶段: requirement/design/tech/feature/code/delivery/completed |
+| `phase_status` | `str` | 阶段状态: running/waiting_human/completed |
+| `requirement_snapshot` | `Optional[RequirementSnapshot]` | 需求快照 |
+| `design_snapshot` | `Optional[DesignSnapshot]` | 设计快照 |
+| `tech_snapshot` | `Optional[TechSnapshot]` | 技术快照 |
+| `feature_snapshot` | `Optional[FeatureSnapshot]` | 功能快照 |
+| `code_snapshot` | `Optional[CodeSnapshot]` | 代码快照 |
+| `phase_history` | `List[PhaseTransition]` | 阶段转换记录 |
+| `tech_spec` | `Optional[Dict]` | 综合技术方案 |
+| `tech_approved` | `bool` | 技术方案是否已确认 |
+| `project_mode` | `Optional[str]` | demo / full |
+| `selected_features` | `Optional[List[str]]` | 选中的功能列表 |
+| `design_projects` | `List[Dict]` | 4 套风格项目列表 |
+| `selected_style_id` | `Optional[str]` | 选中的风格 ID |
+| `delivery_approved` | `bool` | 交付是否已确认 |
+| `human_input_pending` | `bool` | 是否等待用户输入 |
+
+**各子图读写字段映射：**
+
+| 子图 | 写入字段 | 读取字段 |
+| --- | --- | --- |
+| `RequirementSubgraph` | requirements_doc, requirements_approved, requirement_snapshot, phase_history | user_message |
+| `DesignSubgraph` | design_projects, selected_style_id, selected_design, design_snapshot | requirements_doc |
+| `TechSubgraph` | tech_spec, tech_approved, tech_snapshot, phase_history | requirements_doc |
+| `FeatureSubgraph` | project_mode, selected_features, feature_snapshot, phase_history | — |
+| `CodeSubgraph` | api_spec, mock_data, frontend_code, style_code, extracted_homepage | requirements_doc |
+| `DeliverySubgraph` | delivery_approved, revision_feedback | api_spec, mock_data, frontend_code, style_code |
 
 #### `intent_node()` (backend/app/graph/nodes.py)
 - **功能**：意图理解节点，分析用户需求
