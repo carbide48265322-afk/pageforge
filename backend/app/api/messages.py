@@ -236,5 +236,7 @@ async def send_message(session_id: str, req: MessageRequest):
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+            "Content-Encoding": "none",
         },
     )

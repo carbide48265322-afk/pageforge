@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Send, Square, ChevronDown, Wrench, Check, Loader2 } from "lucide-react";
 
 import type { Message } from "../services/api";
@@ -21,7 +21,7 @@ interface ChatPanelProps {
  * 包含消息列表、思考过程展示、输入框和操作按钮
  * 使用 IntersectionObserver 实现智能滚动
  */
-export function ChatPanel({
+function ChatPanelComponent({
     messages,
     isLoading,
     currentBlocks,
@@ -244,3 +244,5 @@ export function ChatPanel({
         </div>
     );
 }
+
+export const ChatPanel = React.memo(ChatPanelComponent);

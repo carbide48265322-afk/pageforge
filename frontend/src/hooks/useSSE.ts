@@ -91,6 +91,8 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
     /** 文本消费速率 */
     const getConsumeRate = useCallback(() => {
         const len = bufferRef.current.length;
+        if (len > 200) return 32;
+        if (len > 100) return 16;
         if (len > 50) return 8;
         if (len > 20) return 4;
         if (len > 5) return 2;
@@ -145,10 +147,12 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
     /** 源码消费速率（比对话框快） */
     const getStreamRate = useCallback(() => {
         const len = streamBufferRef.current.length;
-        if (len > 100) return 20;
-        if (len > 50) return 10;
-        if (len > 20) return 5;
-        return 3;
+        if (len > 500) return 100;
+        if (len > 200) return 50;
+        if (len > 100) return 30;
+        if (len > 50) return 20;
+        if (len > 20) return 10;
+        return 5;
     }, []);
 
     /** 源码消费 */
