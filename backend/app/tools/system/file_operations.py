@@ -6,7 +6,9 @@ from typing import Dict, List, Any
 from langchain_core.tools import tool
 from .security import SecurityValidator
 from .config import system_config
+from app.core import registry
 
+@registry.register_tool
 @tool
 def save_generated_code(file_path: str, code_content: str, file_type: str = None) -> Dict[str, Any]:
     """
@@ -60,6 +62,7 @@ def save_generated_code(file_path: str, code_content: str, file_type: str = None
     except Exception as e:
         return {"success": False, "error": f"文件保存失败: {str(e)}"}
 
+@registry.register_tool
 @tool
 def read_project_file(file_path: str, max_size: int = 512000) -> Dict[str, Any]:
     """
@@ -100,6 +103,7 @@ def read_project_file(file_path: str, max_size: int = 512000) -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": f"文件读取失败: {str(e)}"}
 
+@registry.register_tool
 @tool
 def create_project_structure(structure: Dict[str, Any]) -> Dict[str, Any]:
     """

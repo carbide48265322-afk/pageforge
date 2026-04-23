@@ -7,7 +7,9 @@ from pathlib import Path
 from langchain_core.tools import tool
 from .security import SecurityValidator
 from .config import system_config
+from app.core import registry
 
+@registry.register_tool
 @tool
 def get_project_status(project_path: str = "") -> Dict[str, Any]:
     """
@@ -46,6 +48,7 @@ def get_project_status(project_path: str = "") -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": f"获取项目状态失败: {str(e)}"}
 
+@registry.register_tool
 @tool
 def list_project_files(directory: str = "", recursive: bool = True, file_types: List[str] = None) -> Dict[str, Any]:
     """
@@ -116,6 +119,7 @@ def list_project_files(directory: str = "", recursive: bool = True, file_types: 
     except Exception as e:
         return {"success": False, "error": f"列出文件失败: {str(e)}"}
 
+@registry.register_tool
 @tool
 def analyze_project_structure(root_directory: str = "") -> Dict[str, Any]:
     """
@@ -147,6 +151,7 @@ def analyze_project_structure(root_directory: str = "") -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": f"分析项目结构失败: {str(e)}"}
 
+@registry.register_tool
 @tool
 def monitor_file_changes(file_path: str, last_modified: str = None) -> Dict[str, Any]:
     """
@@ -195,6 +200,7 @@ def monitor_file_changes(file_path: str, last_modified: str = None) -> Dict[str,
     except Exception as e:
         return {"success": False, "error": f"监控文件变化失败: {str(e)}"}
 
+@registry.register_tool
 @tool
 def get_project_statistics(directory: str = "") -> Dict[str, Any]:
     """

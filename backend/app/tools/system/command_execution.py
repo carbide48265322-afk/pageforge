@@ -6,7 +6,9 @@ from typing import Dict, List, Any, Optional
 from langchain_core.tools import tool
 from .security import CommandValidator, SecurityValidator
 from .config import system_config
+from app.core import registry
 
+@registry.register_tool
 @tool
 def execute_npm_command(command: str, args: Optional[List[str]] = None, timeout: int = 120) -> Dict[str, Any]:
     """
@@ -53,6 +55,7 @@ def execute_npm_command(command: str, args: Optional[List[str]] = None, timeout:
     except Exception as e:
         return {"success": False, "error": f"npm命令执行失败: {str(e)}"}
 
+@registry.register_tool
 @tool
 def execute_node_command(script_path: str, args: Optional[List[str]] = None, timeout: int = 60) -> Dict[str, Any]:
     """
@@ -94,6 +97,7 @@ def execute_node_command(script_path: str, args: Optional[List[str]] = None, tim
     except Exception as e:
         return {"success": False, "error": f"Node命令执行失败: {str(e)}"}
 
+@registry.register_tool
 @tool
 def execute_shell_command(command: str, args: Optional[List[str]] = None, timeout: int = 30) -> Dict[str, Any]:
     """
@@ -194,6 +198,7 @@ def _execute_command(command: str, timeout: int = 30) -> Dict[str, Any]:
 
     return result
 
+@registry.register_tool
 @tool
 def get_command_help(command: str) -> Dict[str, Any]:
     """
