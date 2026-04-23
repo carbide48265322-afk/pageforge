@@ -4,6 +4,8 @@ from app.agents.task_analyzer import TaskAnalyzer, TaskAnalysis
 from app.agents.strategies.base_strategy import PlanningStrategy
 from app.agents.strategies.react_strategy import ReActStrategy
 from app.agents.strategies.plan_execute_strategy import PlanExecuteStrategy
+from app.agents.strategies.chain_of_thought_strategy import ChainOfThoughtStrategy
+from app.agents.strategies.hybrid_strategy import HybridStrategy
 from app.agents.tools.todo_write_tool import TodoWriteTool
 
 class UnifiedAgent:
@@ -20,9 +22,8 @@ class UnifiedAgent:
         return {
             "react": ReActStrategy(),
             "plan_execute": PlanExecuteStrategy(),
-            # 后续可以添加更多策略
-            # "chain_of_thought": ChainOfThoughtStrategy(),
-            # "hybrid": HybridStrategy()
+            "chain_of_thought": ChainOfThoughtStrategy(),
+            "hybrid": HybridStrategy()
         }
 
     async def process(self, state: AgentState) -> AgentState:

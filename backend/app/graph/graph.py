@@ -17,7 +17,6 @@ async def result_processing_node(state: AgentState) -> dict:
     # 比如格式化输出、添加元数据等
 
     strategy_info = state.get("strategy_info", {})
-    result_data = state.get("result", {})
 
     # 构建用户友好的响应消息
     response_message = f"任务已完成，使用了{strategy_info.get('name', '未知')}策略。"
