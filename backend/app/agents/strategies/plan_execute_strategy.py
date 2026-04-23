@@ -4,6 +4,7 @@ from app.config import llm
 from langchain_core.messages import HumanMessage
 from .base_strategy import PlanningStrategy
 from app.agents.task_analyzer import TaskAnalysis
+from app.graph.state import AgentState
 
 @dataclass
 class PlanStep:

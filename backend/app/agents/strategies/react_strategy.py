@@ -1,9 +1,10 @@
-from typing import List
+from typing import List, Dict, Any
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from app.config import llm
 from app.core import registry
 from .base_strategy import PlanningStrategy
 from app.agents.task_analyzer import TaskAnalysis
+from app.graph.state import AgentState
 
 class ReActStrategy(PlanningStrategy):
     """ReAct策略 - 思考+行动循环"""
