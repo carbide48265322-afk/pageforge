@@ -86,7 +86,7 @@ class TodoManager:
 
     def get_todo(self, todo_id: str) -> Optional[TodoItem]:
         """获取单个待办事项"""
-        return self.todos.get(todo_id)\n
+        return self.todos.get(todo_id)
     def get_session_todos(self, session_id: str, status_filter: str = None) -> List[TodoItem]:
         """获取会话的所有待办事项"""
         if session_id not in self.session_todos:
