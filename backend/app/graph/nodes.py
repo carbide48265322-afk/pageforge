@@ -95,11 +95,7 @@ async def intent_node(state: AgentState) -> dict:
         "fix_count": 0,
     }
 
-# 只保留核心工具，不再需要技能工具
-TOOL_MAP = {tool.name: tool for tool in AGENT_TOOLS}
-print(f"[Tool] 已加载 {len(TOOL_MAP)} 个工具到 TOOL_MAP:")
-for name in TOOL_MAP:
-    print(f"  - {name}")
+# TOOL_MAP 已移除，现在直接使用注册中心的工具
 
 async def execute_node(state: AgentState) -> dict:
     """ReAct 执行节点 — 调用 LLM 生成/修改 HTML
@@ -192,9 +188,10 @@ async def execute_node(state: AgentState) -> dict:
                     tool_args["base_html"] = base_html
 
                 # 查找并执行工具
-                tool_fn = TOOL_MAP.get(tool_name)
-                if tool_fn:
-                    result = await tool_fn.ainvoke(tool_args)
+                from app.core import registry
+                tool_info = registry.get_tool_info(tool_name)
+                if tool_info:
+                    result = await tool_info.function.ainvoke(tool_args)
                     tool_msg = ToolMessage(
                         content=str(result),
                         tool_call_id=tool_call["id"],
