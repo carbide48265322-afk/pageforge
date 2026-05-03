@@ -93,6 +93,25 @@ async def execute_node(state: AgentState) -> dict:
     from app.core import registry
     skill_guide = registry.get_skill_guide()
 
+    # 检查是否需要自动应用风格模板
+    task = state.get("task_list", [{}])[0] if state.get("task_list") else {}
+    action = task.get("action", "create")
+
+    # 如果是创建新页面且没有基础HTML，自动应用风格模板
+    if action == "create" and not base_html:
+        try:
+            # 自动应用风格模板
+            from app.tools.system.style_templates import auto_apply_style_template
+            template_result = auto_apply_style_template(state["session_id"], state["user_message"])
+
+            if template_result.get("success"):
+                # 如果模板应用成功，使用生成的HTML作为基础
+                base_html = template_result.get("generated_html", "")
+                print(f"[AI Template] 自动应用模板: {template_result['template_name']}")
+        except Exception as e:
+            print(f"[AI Template] 自动应用模板失败: {e}")
+            # 继续正常流程，不中断
+
     # 构建系统提示，包含技能指南
     system_prompt = f"""你是 PageForge 的页面生成 Agent。你的任务是根据用户需求生成或修改单文件 HTML 页面。
 

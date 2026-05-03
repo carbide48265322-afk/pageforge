@@ -1,0 +1,194 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# 并行运行同一 PR 的多个提交，取消旧的
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  # ── Backend ──────────────────────────────────────────
+  backend-lint:
+    name: Backend / Lint & Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Mypy type check
+        run: uv run mypy app/
+
+  backend-test:
+    name: Backend / Tests
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests
+        run: uv run pytest tests/ -v --tb=short
+
+      - name: Run root-level tests
+        working-directory: ${{ github.workspace }}
+        run: uv run --project backend pytest tests/ -v --tb=short
+
+  # ── Frontend ─────────────────────────────────────────
+  frontend-lint:
+    name: Frontend / Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+  frontend-typecheck:
+    name: Frontend / Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npx tsc -b --noEmit
+
+  frontend-test:
+    name: Frontend / Tests
+    runs-on: ubuntu-latest
+    needs: frontend-lint
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --passWithNoTests --ci --coverage
+
+  frontend-build:
+    name: Frontend / Build
+    runs-on: ubuntu-latest
+    needs: [frontend-lint, frontend-typecheck]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ── Final gate ───────────────────────────────────────
+  ci-check:
+    name: CI / All Checks Passed
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test, frontend-build]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          echo "Backend lint:     ${{ needs.backend-lint.result }}"
+          echo "Backend test:     ${{ needs.backend-test.result }}"
+          echo "Frontend lint:    ${{ needs.frontend-lint.result }}"
+          echo "Frontend typecheck: ${{ needs.frontend-typecheck.result }}"
+          echo "Frontend test:    ${{ needs.frontend-test.result }}"
+          echo "Frontend build:   ${{ needs.frontend-build.result }}"
+
+          if [[ "${{ needs.backend-test.result }}" == "failure" ]] || \
+             [[ "${{ needs.frontend-test.result }}" == "failure" ]] || \
+             [[ "${{ needs.frontend-build.result }}" == "failure" ]]; then
+            echo "::error::One or more required jobs failed"
+            exit 1
+          fi
+          echo "All checks passed!"

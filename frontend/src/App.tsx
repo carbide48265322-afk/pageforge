@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { Eye } from "lucide-react";
+import { Eye, Rocket } from "lucide-react";
 import { useSession } from "./hooks/useSession";
 import { useSSE } from "./hooks/useSSE";
 import { ChatPanel } from "./components/ChatPanel";
-import { PreviewPanel } from "./components/PreviewPanel";
+import { WebContainerPanel } from "./components/WebContainerPanel";
 import { ResizableLayout } from "./components/ResizableLayout";
 import { VersionSelector } from "./components/VersionSelector";
 import { BaseConfirmDialog } from "./components/BaseConfirmDialog";
@@ -45,7 +45,7 @@ function App() {
   // 基准版本切换确认弹窗状态
   const [pendingVersion, setPendingVersion] = useState<PageVersion | null>(null);
   // 新增：预览区显示的 HTML（SSE 推送或版本加载）
-  const [previewHtml, setPreviewHtml] = useState("")
+  const [previewHtml, setPreviewHtml] = useState("");
   // 应用启动时自动创建会话
   useEffect(() => {
     newSession();
@@ -86,14 +86,16 @@ function App() {
     setPendingVersion(null);
   };
 
+
   return (
     <div className="h-screen flex flex-col bg-white">
+
       {/* 顶部导航栏 */}
       <header className="flex items-center justify-between border-b border-gray-200 px-4 py-2 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold text-gray-900">PageForge</h1>
+          <h1 className="text-base font-semibold text-gray-900">PageForge</n          </h1>
           <span className="text-xs text-gray-400">AI 页面生成器</span>
-        </div>
+        </div
         <div className="flex items-center gap-2">
           {/* 版本选择器 */}
           <VersionSelector
@@ -101,6 +103,7 @@ function App() {
             currentBase={currentBase}
             onSelectVersion={handleSelectVersion}
           />
+
           {/* 预览按钮 */}
           <button
             onClick={() => setPreviewOpen(!previewOpen)}
@@ -131,11 +134,13 @@ function App() {
             />
           }
           rightPanel={
-            <PreviewPanel
+            <WebContainerPanel
               html={previewHtml}
               streamingHtml={streamingHtml}
               isOpen={previewOpen}
               onClose={() => setPreviewOpen(false)}
+              sessionId={sessionId}
+              latestVersion={latestVersion}
             />
           }
           isRightOpen={previewOpen}
