@@ -1,251 +1,212 @@
-import { useEffect, useState } from "react";
-import { X, Monitor, Tablet, Smartphone, Copy, Download, Check } from "lucide-react";
-import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
-import xml from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
-import github from "react-syntax-highlighter/dist/esm/styles/hljs/github";
-// 注册语言（xml 包含 html 别名）
-SyntaxHighlighter.registerLanguage("xml", xml);
-SyntaxHighlighter.registerLanguage("html", xml);
-
-/** 预览面板的 props */
-interface PreviewPanelProps {
-    /** HTML 内容 */
-    html: string;
-    /** 流式输出的 HTML（生成过程中源码视图实时展示） */
-    streamingHtml: string;
-    /** 是否展示预览面板 */
-    isOpen: boolean;
-    /** 关闭预览面板回调 */
-    onClose: () => void;
-}
-
-/** 响应式尺寸类型 */
-type ResponsiveSize = "desktop" | "tablet" | "mobile";
-
-/** 各尺寸对应的宽度 */
-const SIZE_WIDTHS: Record<ResponsiveSize, string> = {
-    desktop: "100%",
-    tablet: "768px",
-    mobile: "375px",
-};
+import { useState } from "react";
+import { X, Eye, Code, Copy, Download, Check } from "lucide-react";
+import { FileTree } from "./FileTree";
+import { CodeViewer } from "./CodeViewer";
+import type { FileNode, FileContent } from "./CodeViewer";
+import type { PreviewSource } from "../hooks/useSSEv2";
 
 /**
- * 预览面板组件
- * 使用 iframe sandbox 渲染生成的 HTML
- * 支持预览/源码切换、响应式尺寸切换、收起/展开
- * 使用 CSS display 切换避免 iframe 重复加载
+ * PreviewPanel 组件的 props
+ * 新面板：支持预览/代码 Tab 切换
  */
-export function PreviewPanel({ html, streamingHtml, isOpen, onClose }: PreviewPanelProps) {
-    const [viewMode, setViewMode] = useState<"preview" | "source">("preview");
-    const [size, setSize] = useState<ResponsiveSize>("desktop");
-    // 新增 state 控制复制成功提示
-    const [copied, setCopied] = useState(false);
+interface PreviewPanelProps {
+  /** 预览源（html/url/none） */
+  previewSource: PreviewSource;
+  /** 文件树数据 */
+  files: FileNode[];
+  /** 当前选中的文件路径 */
+  selectedFile?: string;
+  /** 文件选择回调 */
+  onFileSelect: (path: string) => void;
+  /** 是否打开面板 */
+  isOpen: boolean;
+  /** 关闭回调 */
+  onClose: () => void;
+}
 
-    // 动画控制：mounted 控制是否渲染 DOM，visible 控制动画状态
-    const [mounted, setMounted] = useState(false);
-    const [visible, setVisible] = useState(false);
+/**
+ * 新预览面板组件
+ * 支持预览/代码 Tab 切换
+ * - 预览 Tab：显示 HTML 或 URL 预览
+ * - 代码 Tab：显示 FileTree + CodeViewer
+ */
+export function PreviewPanel({
+  previewSource,
+  files,
+  selectedFile,
+  onFileSelect,
+  isOpen,
+  onClose,
+}: PreviewPanelProps) {
+  const [activeTab, setActiveTab] = useState<"preview" | "code">("preview");
+  const [copied, setCopied] = useState(false);
 
-    useEffect(() => {
-        if (isOpen) {
-            setMounted(true);
-            // 双 rAF 确保浏览器先渲染初始状态，再触发过渡动画
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => setVisible(true));
-            });
-        } else {
-            setVisible(false);
-        }
-    }, [isOpen]);
-    // 有流式内容时自动切换到源码视图
-    useEffect(() => {
-        if (streamingHtml) {
-            setViewMode("source");
-        }
-    }, [streamingHtml]);
-    /** 退出动画完成后卸载 DOM */
-    const handleTransitionEnd = () => {
-        if (!isOpen) setMounted(false);
-    };
+  // 获取当前选中的文件内容（从后端API获取）
+  const [fileContent, setFileContent] = useState<FileContent | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(false);
 
-    if (!mounted) return null;
-    /** 复制 HTML 源码到剪贴板 */
-    const handleCopy = async () => {
-        if (!html) return;
-        await navigator.clipboard.writeText(html);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
+  // 文件选择处理
+  const handleFileSelect = (path: string) => {
+    onFileSelect(path);
+    loadFileContent(path);
+  };
 
-    /** 下载 HTML 文件 */
-    const handleDownload = () => {
-        if (!html) return;
-        const blob = new Blob([html], { type: "text/html" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "page.html";
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-    const displayHtml = streamingHtml || html;
+  // 加载文件内容
+  const loadFileContent = async (path: string) => {
+    setIsLoading(true);
+    try {
+      // TODO: 从后端 API 获取文件内容
+      // const response = await api.getFileContent(sessionId, path);
+      // setFileContent({ path, content: response.content, language: response.language });
+      
+      // 临时模拟数据
+      setFileContent({
+        path: path,
+        content: "// 文件内容加载中...",
+        language: path.split(".").pop() || "plaintext",
+      });
+    } catch (error) {
+      console.error("加载文件内容失败:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    // 未打开时不渲染
-    if (!isOpen) return null;
+  // 复制 HTML 源码
+  const handleCopy = async () => {
+    if (previewSource.mode !== "html" || !previewSource.html) return;
+    await navigator.clipboard.writeText(previewSource.html);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
-    return (
-        <div
-            className={`flex flex-col h-full bg-white transition-all duration-300 ease-in-out ${visible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-4"
-                }`}
-            onTransitionEnd={handleTransitionEnd}
-        >            {/* 顶部工具栏 */}
-            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
-                <div className="flex items-center">
-                    {/* 视图模式切换 */}
-                    <div className="flex items-center gap-1 mr-4">
-                        <button
-                            onClick={() => setViewMode("preview")}
-                            className={`px-2 py-1 text-xs rounded transition-colors ${viewMode === "preview"
-                                ? "bg-gray-100 text-gray-900 font-medium"
-                                : "text-gray-400 hover:text-gray-600"
-                                }`}
-                        >
-                            预览
-                        </button>
-                        <button
-                            onClick={() => setViewMode("source")}
-                            className={`px-2 py-1 text-xs rounded transition-colors ${viewMode === "source"
-                                ? "bg-gray-100 text-gray-900 font-medium"
-                                : "text-gray-400 hover:text-gray-600"
-                                }`}
-                        >
-                            源码
-                        </button>
-                    </div>
+  // 下载 HTML 文件
+  const handleDownload = () => {
+    if (previewSource.mode !== "html" || !previewSource.html) return;
+    const blob = new Blob([previewSource.html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "page.html";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-                    {/* 响应式尺寸切换（仅预览模式可用） */}
-                    {viewMode === "preview" && (
-                        <div className="flex items-center gap-1">
-                            <button
-                                onClick={() => setSize("desktop")}
-                                className={`p-1.5 rounded transition-colors ${size === "desktop"
-                                    ? "bg-gray-100 text-gray-900"
-                                    : "text-gray-400 hover:text-gray-600"
-                                    }`}
-                                title="桌面端"
-                            >
-                                <Monitor size={16} />
-                            </button>
-                            <button
-                                onClick={() => setSize("tablet")}
-                                className={`p-1.5 rounded transition-colors ${size === "tablet"
-                                    ? "bg-gray-100 text-gray-900"
-                                    : "text-gray-400 hover:text-gray-600"
-                                    }`}
-                                title="平板端"
-                            >
-                                <Tablet size={16} />
-                            </button>
-                            <button
-                                onClick={() => setSize("mobile")}
-                                className={`p-1.5 rounded transition-colors ${size === "mobile"
-                                    ? "bg-gray-100 text-gray-900"
-                                    : "text-gray-400 hover:text-gray-600"
-                                    }`}
-                                title="手机端"
-                            >
-                                <Smartphone size={16} />
-                            </button>
-                        </div>
-                    )}
-                </div>
-                <div className="flex items-center gap-1">
+  if (!isOpen) return null;
 
-                    {/* 复制按钮 */}
-                    <button
-                        onClick={handleCopy}
-                        className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                        title={copied ? "已复制" : "复制源码"}
-                    >
-                        {copied ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
-                    </button>
-
-                    {/* 下载按钮 */}
-                    <button
-                        onClick={handleDownload}
-                        className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                        title="下载 HTML"
-                    >
-                        <Download size={16} />
-                    </button>
-                    {/* 收起按钮 */}
-                    <button
-                        onClick={onClose}
-                        className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                        title="收起预览"
-                    >
-                        <X size={16} />
-                    </button>
-                </div>
-            </div>
-
-            {/* 内容区域 */}
-            <div className="flex-1 overflow-auto bg-gray-100 p-4">
-                {/* 空值提示 */}
-                {!displayHtml || displayHtml.trim().length === 0 ? (
-                    <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                        暂无预览内容
-                    </div>
-                ) : displayHtml.length > 2 * 1024 * 1024 ? (
-                    /* 超过 2MB 提示 */
-                    <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                        页面内容过大，请查看源码
-                    </div>
-                ) : (
-                    <>
-                        {/* 预览层：CSS display 切换，避免 iframe 重复加载 */}
-                        <div
-                            className="h-full"
-                            style={{ display: viewMode === "preview" ? "block" : "none" }}
-                        >
-                            <div className="flex items-start justify-center h-full overflow-hidden">
-                                <div
-                                    className="bg-white shadow-lg rounded-lg overflow-hidden transition-all duration-300"
-                                    style={{
-                                        width: SIZE_WIDTHS[size],
-                                        height: "100%",
-                                    }}
-                                >
-                                    {/*
-                                        sandbox="allow-scripts" 允许页面内 JS 执行
-                                        不加 allow-same-origin 防止跨沙箱通信
-                                    */}
-                                    <iframe
-                                        srcDoc={displayHtml}
-                                        sandbox="allow-scripts"
-                                        className="w-full h-full border-0"
-                                        title="页面预览"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        {/* 源码层：只读 HTML 文本 */}
-                        {/* 源码层：HTML 语法高亮 */}
-                        <div
-                            className="h-full"
-                            style={{ display: viewMode === "source" ? "block" : "none" }}
-                        >
-                            <SyntaxHighlighter
-                                language="html"
-                                style={github}
-                                className="h-full !bg-white text-xs"
-                                showLineNumbers
-                            >
-                                {displayHtml}
-                            </SyntaxHighlighter>
-                        </div>
-                    </>
-                )}
-            </div>
+  return (
+    <div className="flex flex-col h-full bg-white border-l border-gray-200">
+      {/* 顶部工具栏 */}
+      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
+        <div className="flex items-center gap-2">
+          {/* Tab 切换 */}
+          <button
+            onClick={() => setActiveTab("preview")}
+            className={`px-3 py-1 text-xs rounded transition-colors ${
+              activeTab === "preview"
+                ? "bg-blue-100 text-blue-700 font-medium"
+                : "text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            <Eye size={12} className="inline mr-1" />
+            预览
+          </button>
+          <button
+            onClick={() => setActiveTab("code")}
+            className={`px-3 py-1 text-xs rounded transition-colors ${
+              activeTab === "code"
+                ? "bg-blue-100 text-blue-700 font-medium"
+                : "text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            <Code size={12} className="inline mr-1" />
+            代码
+          </button>
         </div>
-    );
+
+        <div className="flex items-center gap-1">
+          {/* 复制按钮（仅 html 模式） */}
+          {previewSource.mode === "html" && (
+            <button
+              onClick={handleCopy}
+              className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              title={copied ? "已复制" : "复制源码"}
+            >
+              {copied ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+            </button>
+          )}
+
+          {/* 下载按钮（仅 html 模式） */}
+          {previewSource.mode === "html" && (
+            <button
+              onClick={handleDownload}
+              className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              title="下载 HTML"
+            >
+              <Download size={16} />
+            </button>
+          )}
+
+          {/* 收起按钮 */}
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            title="收起面板"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* 内容区域 */}
+      <div className="flex-1 overflow-hidden">
+        {/* 预览 Tab */}
+        {activeTab === "preview" && (
+          <div className="h-full bg-gray-100 p-4">
+            {previewSource.mode === "none" ? (
+              <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                暂无预览内容
+              </div>
+            ) : previewSource.mode === "html" ? (
+              <div className="h-full bg-white rounded-lg shadow-lg overflow-hidden">
+                <iframe
+                  srcDoc={previewSource.html}
+                  sandbox="allow-scripts"
+                  className="w-full h-full border-0"
+                  title="页面预览"
+                />
+              </div>
+            ) : (
+              <div className="h-full bg-white rounded-lg shadow-lg overflow-hidden">
+                <iframe
+                  src={previewSource.url}
+                  className="w-full h-full border-0"
+                  title="应用预览"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 代码 Tab */}
+        {activeTab === "code" && (
+          <div className="h-full flex">
+            {/* 文件树 */}
+            <div className="w-64 border-r border-gray-200 bg-gray-50 overflow-y-auto">
+              <FileTree
+                files={files}
+                onSelect={handleFileSelect}
+                selectedPath={selectedFile}
+              />
+            </div>
+
+            {/* 代码查看器 */}
+            <div className="flex-1 overflow-hidden">
+              <CodeViewer file={fileContent} isLoading={isLoading} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

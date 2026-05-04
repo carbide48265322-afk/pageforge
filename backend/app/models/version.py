@@ -9,12 +9,13 @@ class PageVersion:
     
     version: int = 0              # 版本号（自增）
     session_id: str = ""          # 所属会话 ID
-    html: str = ""                # HTML 内容
+    html: str = ""                # HTML 内容（type=html 时使用）
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())  # 生成时间
     summary: str = ""             # 变更摘要（来自用户消息）
     parent_version: int|None = None  # 父版本号（None = 首次生成）
     trigger_message: str = ""     # 触发此版本的用户原始消息
-
+    type: str = "html"           # 版本类型：html / project
+    
     def to_dict(self) -> dict:
         """序列化为字典（不含 HTML 内容，用于版本列表展示）"""
         return {
@@ -24,8 +25,9 @@ class PageVersion:
             "summary": self.summary,
             "parent_version": self.parent_version,
             "trigger_message": self.trigger_message,
+            "type": self.type,  # 新增：版本类型
         }
-
+    
     @classmethod
     def from_dict(cls, data: dict) -> "PageVersion":
         """从字典反序列化"""

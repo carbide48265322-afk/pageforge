@@ -43,6 +43,7 @@ class VersionService:
         summary: str,
         trigger_message: str,
         parent_version: int | None = None,
+        type: str = "html",  # 新增：版本类型
     ) -> PageVersion:
         """保存新版本 — HTML 写文件，元数据追加到 JSON 列表"""
         versions = self._load_versions_meta(session_id)
@@ -62,6 +63,7 @@ class VersionService:
             summary=summary,
             parent_version=parent_version,
             trigger_message=trigger_message,
+            type=type,  # 新增：版本类型
         )
 
         # 追加到元数据列表

@@ -51,14 +51,26 @@ async def get_versions(session_id: str):
 
 @router.get("/{session_id}/html")
 async def get_html(session_id: str, version: int | None = None):
-    """获取指定版本的 HTML 内容，不传 version 则返回最新版本"""
+    """获取指定版本的内容 — 根据 type 返回不同结构"""
     if version is None:
         v = version_service.get_latest_version(session_id)
     else:
         v = version_service.get_version(session_id, version)
     if v is None:
         raise HTTPException(status_code=404, detail="Version not found")
-    return {"html": v.html, "version": v.version}
+    
+    # 根据 type 返回不同结构
+    if v.type == "html":
+        return {"type": "html", "html": v.html, "version": v.version}
+    else:  # type == "project"
+        # TODO: 从项目数据获取 files 和 preview_url
+        return {
+            "type": "project",
+            "project_id": session_id,
+            "files": [],  # 从后端 API 获取
+            "preview_url": "",  # 从 WebContainer 获取
+            "version": v.version
+        }
 
 
 @router.post("/{session_id}/base-version", response_model=BaseVersionResponse)

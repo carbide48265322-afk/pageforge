@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import TypedDict, Optional, List
 
 
 class AgentState(TypedDict):
@@ -18,6 +18,14 @@ class AgentState(TypedDict):
 
     # ---- 输出 ----
     response_message: str   # 最终回复给用户的消息
-    output_html: str        # 最终输出的 HTML
+    output_html: Optional[str]        # 最终输出的 HTML（新项目可为 None）
     output_version: int     # 最终保存的版本号
     is_complete: bool       # 工作流是否完成
+
+    # ---- 新字段（全部 Optional，兼容旧数据） ----
+    project_type: Optional[str]           # "react-vite-app"
+    files: Optional[List[dict]]          # 新：多文件列表
+    project_id: Optional[str]            # WebContainer 项目 ID
+    install_status: Optional[str]       # installing / done / failed
+    dev_server_url: Optional[str]       # 预览 URL
+    ui_style: Optional[str]             # minimal / vibrant / dark / glassmorphism

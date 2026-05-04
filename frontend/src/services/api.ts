@@ -37,6 +37,7 @@ export interface PageVersion {
     summary: string;
     parent_version: number | null;
     trigger_message: string;
+    type?: 'html' | 'project';  // 新增：版本类型
 }
 
 /** 版本列表响应 */
@@ -61,11 +62,14 @@ export async function getVersions(
     return res.json();
 }
 
-/** 获取指定版本的 HTML */
+/** 获取指定版本的 HTML 或项目数据 */
 export async function getHtml(
     sessionId: string,
     version?: number,
-): Promise<{ html: string; version: number }> {
+): Promise<
+  | { type: 'html'; html: string; version: number }
+  | { type: 'project'; project_id: string; files: any[]; preview_url: string; version: number }
+> {
     const params = version ? `?version=${version}` : "";
     const res = await fetch(`${API_BASE}/sessions/${sessionId}/html${params}`);
     return res.json();

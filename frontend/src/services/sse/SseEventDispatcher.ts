@@ -1,0 +1,259 @@
+/**
+ * SSE 事件分发器
+ * 三层架构的核心：连接管理 + 事件路由
+ * 支持两种模式：
+ * 1. GET 模式（EventSource）：用于监听事件
+ * 2. POST 模式（fetch + 流读取）：用于发送消息并接收 SSE 流
+ */
+
+import type { SSEEvent, ThinkingBlock, PlanBlock, ToolCallBlock, FileNode, IntentResult, StyleConfig } from './types';
+import { parseSSELine, parseSSEMessage } from './utils/parseEvent';
+import { thinkingHandler } from './handlers/thinkingHandler';
+import { planHandler } from './handlers/planHandler';
+import { toolCallHandler } from './handlers/toolCallHandler';
+import { fileEventHandler } from './handlers/fileEventHandler';
+import { statusHandler } from './handlers/statusHandler';
+import { intentHandler } from './handlers/intentHandler';
+import { styleHandler } from './handlers/styleHandler';
+
+// 事件名 → handler 映射表（注册制，新增事件只需加一行）
+const HANDLER_MAP: Record<string, (data: unknown) => void> = {
+  'thinking_start': thinkingHandler.onStart,
+  'thinking_delta': thinkingHandler.onDelta,
+  'thinking_end': thinkingHandler.onEnd,
+  'plan_start': planHandler.onStart,
+  'plan_update': planHandler.onUpdate,
+  'plan_done': planHandler.onDone,
+  'tool_call:start': toolCallHandler.onStart,
+  'tool_call:end': toolCallHandler.onEnd,
+  'file_created': fileEventHandler.onCreate,
+  'file_updated': fileEventHandler.onUpdate,
+  'file_deleted': fileEventHandler.onDelete,
+  'status:init': statusHandler.onInit,
+  'status:installing': statusHandler.onInstalling,
+  'status:install_done': statusHandler.onInstallDone,
+  'status:generation_done': statusHandler.onGenerationDone,
+  'status:starting_dev': statusHandler.onStartingDev,
+  'status:preview_ready': statusHandler.onPreviewReady,
+  'intent:start': intentHandler.onStart,
+  'intent:result': intentHandler.onResult,
+  'intent:style_query': intentHandler.onStyleQuery,
+  'intent:style_selected': intentHandler.onStyleSelected,
+  'style_selected': styleHandler.onSelected,
+  'error': (data: unknown) => console.error('SSE Error:', data),
+};
+
+export class SseEventDispatcher {
+  private eventSource: EventSource | null = null;
+  private listeners = new Map<string, Set<(data: unknown) => void>>();
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
+  private url: string;
+  private activeAbortControllers: AbortController[] = [];
+
+  constructor(url: string) {
+    this.url = url;
+  }
+
+  /**
+   * 订阅某类事件的数据变化
+   * @returns 取消订阅函数
+   */
+  on(eventType: string, callback: (data: unknown) => void): () => void {
+    if (!this.listeners.has(eventType)) {
+      this.listeners.set(eventType, new Set());
+    }
+    this.listeners.get(eventType)!.add(callback);
+
+    // 返回取消订阅函数
+    return () => {
+      const listeners = this.listeners.get(eventType);
+      if (listeners) {
+        listeners.delete(callback);
+        if (listeners.size === 0) {
+          this.listeners.delete(eventType);
+        }
+      }
+    };
+  }
+
+  /**
+   * 建立 GET SSE 连接（仅监听事件）
+   */
+  connect(): void {
+    if (this.eventSource) {
+      this.disconnect();
+    }
+
+    this.eventSource = new EventSource(this.url);
+
+    this.eventSource.onmessage = (event) => {
+      this.handleSSEData(event.data);
+    };
+
+    this.eventSource.onerror = (error) => {
+      console.error('SSE connection error:', error);
+      this.handleReconnect();
+    };
+
+    this.eventSource.onopen = () => {
+      console.log('SSE connection established');
+      this.reconnectAttempts = 0; // 重置重连计数
+    };
+  }
+
+  /**
+   * 发送消息并接收 SSE 流（POST 模式）
+   * @returns AbortController 可用于取消请求
+   */
+  sendMessage(message: string): AbortController {
+    const controller = new AbortController();
+    this.activeAbortControllers.push(controller);
+
+    fetch(this.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok || !res.body) {
+          throw new Error(`Stream failed: ${res.status}`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let currentEvent = '';
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data:')) {
+              const dataStr = line.slice(5).trim();
+              try {
+                const data = JSON.parse(dataStr);
+                this.handleSSEEvent(currentEvent, data);
+              } catch {
+                // 忽略 JSON 解析错误
+              }
+              currentEvent = '';
+            }
+          }
+        }
+      })
+      .catch((err) => {
+        if (err.name !== 'AbortError') {
+          console.error('SSE POST error:', err);
+          this.handleSSEEvent('error', { message: err.message });
+        }
+      })
+      .finally(() => {
+        // 从活跃控制器列表中移除
+        const index = this.activeAbortControllers.indexOf(controller);
+        if (index > -1) {
+          this.activeAbortControllers.splice(index, 1);
+        }
+      });
+
+    return controller;
+  }
+
+  /**
+   * 关闭所有连接
+   */
+  disconnect(): void {
+    // 清理重连定时器
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    // 关闭 EventSource
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+
+    // 取消所有活跃的 POST 请求
+    this.activeAbortControllers.forEach(controller => {
+      try { controller.abort(); } catch {}
+    });
+    this.activeAbortControllers = [];
+  }
+
+  /**
+   * 处理 SSE 数据（共享逻辑）
+   */
+  private handleSSEData(raw: string): void {
+    const parsed = parseSSELine(raw);
+    if (!parsed) return;
+    this.handleSSEEvent(parsed.event, parsed.data);
+  }
+
+  /**
+   * 处理 SSE 事件（共享逻辑）
+   */
+  private handleSSEEvent(eventName: string, data: unknown): void {
+    // 1. 路由到对应的 handler
+    const handler = HANDLER_MAP[eventName];
+    if (handler) {
+      try {
+        handler(data);
+      } catch (err) {
+        console.error(`Handler error for event ${eventName}:`, err);
+      }
+    } else {
+      console.warn(`No handler registered for event: ${eventName}`);
+    }
+
+    // 2. 通知所有订阅者
+    const subscribers = this.listeners.get(eventName);
+    if (subscribers) {
+      subscribers.forEach(cb => {
+        try {
+          cb(data);
+        } catch (err) {
+          console.error(`Subscriber error for event ${eventName}:`, err);
+        }
+      });
+    }
+  }
+
+  /**
+   * 重连逻辑（指数退避）
+   */
+  private handleReconnect(): void {
+    this.disconnect();
+
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error(`Max reconnection attempts (${this.maxReconnectAttempts}) reached`);
+      return;
+    }
+
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    this.reconnectAttempts++;
+
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.connect();
+    }, delay);
+  }
+
+  /**
+   * 获取当前连接状态
+   */
+  get readyState(): number {
+    return this.eventSource?.readyState ?? EventSource.CLOSED;
+  }
+}
