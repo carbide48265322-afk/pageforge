@@ -17,17 +17,10 @@ from .llm_utils import stream_llm
 logger = logging.getLogger(__name__)
 
 
-THINKING_SYSTEM_PROMPT = """\
-你是一个资深软件架构师，正在分析用户需求并思考实现方案。
+# ========== Prompt 加载（统一管理） ==========
+from app.prompts import load_prompt_with_identity
 
-请按以下结构进行思考：
-1. 需求理解：用户想要什么？核心功能点是什么？
-2. 技术选型：需要哪些技术栈？为什么？
-3. 架构设计：如何组织项目结构？有哪些关键组件？
-4. 实现步骤：分几步完成？每一步的产出是什么？
-
-保持思考专注，每个部分 2-3 句话即可。用中文思考。
-"""
+THINKING_SYSTEM_PROMPT = load_prompt_with_identity("02_thinking")
 
 
 def thinking_node(state: dict) -> dict:

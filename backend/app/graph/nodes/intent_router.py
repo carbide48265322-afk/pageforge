@@ -29,89 +29,30 @@ from langgraph.config import get_stream_writer
 logger = logging.getLogger(__name__)
 
 
-# ========== 意图识别系统 Prompt ==========
+# ========== Prompt 加载（统一管理） ==========
+# 从 backend/app/prompts/*.md 加载，自动拼接全局身份（00_identity.md）
+from app.prompts import load_prompt_with_identity
 
-INTENT_SYSTEM_PROMPT = """\
-你是 PageForge 的意图路由器。分析用户输入，返回 JSON 格式的分类结果。
+INTENT_SYSTEM_PROMPT = load_prompt_with_identity("01_intent_router")
 
-## 意图分类
-- chat: 纯对话（问候、闲聊、提问概念、不涉及代码生成）
-- code_gen: 一句话生成应用（"做个Todo"、"帮我建个博客"、"生成一个登录页面"）
-- code_edit: 修改已有代码（"把按钮改成红色"、"加个搜索功能"、"优化性能"）
-- explain: 解释代码或概念（"这段代码什么意思"、"什么是闭包"、"React useEffect 用法"）
-- debug: 调试问题（"我的页面报错了"、"样式不对"、"打包失败"）
-- file_operation: 文件操作（"删除这个文件"、"重命名"、"查看目录结构"）
-- unknown: 无法判断
-
-## 输出格式（严格 JSON，不要其他文字）
-{
-  "intent": "<分类>",
-  "confidence": 0.0~1.0,
-  "tags": ["<技术标签>"],
-  "mode": "frontend|backend|fullstack|null",
-  "complexity": "simple|medium|complex|null",
-  "suggested_style": "<风格关键词，如 minimal/dark/glassmorphism/null>"
-}
-
-## 规则
-1. confidence < 0.5 时 intent 设为 "unknown"
-2. code_gen 类必须尝试提取 suggested_style（从描述中的风格线索推断，如"暗色系"→"dark"）
-3. tags 尽量提取具体技术词（react/vite/tailwind/todo/crud 等）
-4. mode 根据描述推断（前端项目→frontend，全栈→fullstack）
-5. complexity 根据需求复杂度判断（单页→simple，多页→medium，复杂系统→complex）
-"""
-
-# ========== LLM 单例（延迟加载）==========
-
-_llm = None
+# ========== LLM 获取（委托给 model_router）==========
 
 def _get_llm():
-    """延迟加载 LLM，避免模块导入时就初始化"""
-    global _llm
-    if _llm is None:
-        from app.config import settings
-        from langchain_openai import ChatOpenAI
-        _llm = ChatOpenAI(
-            model=settings.llm_model or "gpt-4o-mini",  # 意图识别用小模型
-            temperature=0.1,  # 低温度，确保分类稳定
-            api_key=settings.openai_api_key,
-            base_url=settings.openai_base_url,
-        )
-    return _llm
+    """获取意图识别专用 LLM（lite 级别）"""
+    from app.core.model_router import get_intent_llm
+    return get_intent_llm()
 
 
-# ========== 内置风格配置降级方案 ===========
-
-_FALLBACK_STYLES = {
-    "minimal": {
-        "colors": {"primary": "#171717", "secondary": "#52525b", "background": "#ffffff", "accent": "#6366f1"},
-        "typography": {"font_family": "'Inter', system-ui, sans-serif", "heading_weight": "600", "body_size": "14px"},
-        "border_radius": "0.375rem",
-        "shadows": {"sm": "0 1px 2px 0 rgb(0 0 0 / 0.05)"},
-        "anti_patterns": ["不要用紫渐变", "不要用 Inter 之外的通用字体", "避免千篇一律的卡片设计"],
-    },
-    "dark": {
-        "colors": {"primary": "#e2e8f0", "secondary": "#94a3b8", "background": "#0a0a0a", "accent": "#818cf8"},
-        "typography": {"font_family": "'Inter', system-ui, sans-serif", "heading_weight": "700", "body_size": "14px"},
-        "border_radius": "0.5rem",
-        "shadows": {"sm": "0 1px 3px 0 rgb(255 255 255 / 0.1)"},
-        "anti_patterns": ["不要用纯白文字", "避免使用蓝色系配色", "避免过亮的背景"],
-    },
-    "glassmorphism": {
-        "colors": {"primary": "#6366f1", "secondary": "#8b5cf6", "background": "rgba(255,255,255,0.1)", "accent": "#f59e0b"},
-        "typography": {"font_family": "'Inter', system-ui, sans-serif", "heading_weight": "600", "body_size": "14px"},
-        "border_radius": "1rem",
-        "shadows": {"sm": "0 8px 32px 0 rgb(31 38 135 / 0.37)"},
-        "anti_patterns": ["不要用实色背景", "避免无透明度的元素", "不要过度使用模糊效果"],
-    },
-    "vibrant": {
-        "colors": {"primary": "#f59e0b", "secondary": "#f97316", "background": "#fffbeb", "accent": "#ef4444"},
-        "typography": {"font_family": "'Inter', system-ui, sans-serif", "heading_weight": "700", "body_size": "14px"},
-        "border_radius": "0.75rem",
-        "shadows": {"sm": "0 4px 6px -1px rgb(245 158 11 / 0.3)"},
-        "anti_patterns": ["不要用灰色系", "避免过度设计", "不要使用小号字体"],
-    },
-}
+# ========== 内置风格配置降级方案 ==========
+# 从 JSON 文件加载，与 style_picker 共享同一份 fallback 数据
+import json as _json
+import os as _os
+_FALLBACK_STYLES_PATH = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)),
+    "..", "..", "prompts", "fallback_styles.json"
+)
+with open(_FALLBACK_STYLES_PATH, "r", encoding="utf-8") as _f:
+    _FALLBACK_STYLES: dict = _json.load(_f)
 
 
 # ========== 主节点函数 ===========
@@ -124,7 +65,6 @@ def intent_router(state: dict) -> dict:
     输出: state + intent, confidence, tags, ui_style, etc.
     """
     user_message = state.get("user_message", "")
-    
     logger.info(f"[IntentRouter] 开始识别意图: {user_message[:50]}...")
 
     # 通过 SSE 推送「开始识别」事件（使用 LangGraph stream_writer）
@@ -139,11 +79,15 @@ def intent_router(state: dict) -> dict:
 
     llm = _get_llm()
 
+    logger.debug(f"[IntentRouter] 使用模型: {llm.model_name}")
+
     try:
         response = llm.invoke([
             SystemMessage(content=INTENT_SYSTEM_PROMPT),
             HumanMessage(content=user_message),
         ])
+
+        logger.debug(f"[IntentRouter] LLM 原始响应: {response.content[:200]}...")
 
         # 解析 LLM 返回的 JSON
         content = response.content.strip()
@@ -169,7 +113,7 @@ def intent_router(state: dict) -> dict:
         logger.info(f"[IntentRouter] 识别结果: intent={intent}, confidence={confidence}, style={suggested_style}")
 
     except (json.JSONDecodeError, KeyError, Exception) as e:
-        logger.warning(f"[IntentRouter] LLM 解析失败，使用默认兜底: {e}")
+        logger.error(f"[IntentRouter] LLM 调用异常: {type(e).__name__}: {e}", exc_info=True)
         intent = "unknown"
         confidence = 0.0
         tags = []
@@ -211,6 +155,11 @@ def intent_router(state: dict) -> dict:
         except Exception:
             pass
 
+    # ── 智能路由：根据 intent + complexity 确定全局模型策略 ──
+    from app.core.model_router import get_global_strategy
+    model_strategy = get_global_strategy(intent, complexity)
+    logger.info(f"[IntentRouter] 路由策略: {model_strategy}")
+
     # 返回更新后的 state
     return {
         **state,
@@ -220,6 +169,7 @@ def intent_router(state: dict) -> dict:
         "mode": mode,
         "complexity": complexity,
         "ui_style": ui_style,
+        "model_strategy": model_strategy,
     }
 
 

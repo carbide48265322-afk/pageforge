@@ -19,24 +19,10 @@ from .llm_utils import stream_llm
 logger = logging.getLogger(__name__)
 
 
-PLAN_SYSTEM_PROMPT = """\
-你是一个项目规划师，负责将用户需求拆解为可执行的步骤列表。
+# ========== Prompt 加载（统一管理） ==========
+from app.prompts import load_prompt_with_identity
 
-## 输出格式（严格 JSON，不要包含其他文字）
-{
-  "steps": [
-    {"id": 1, "label": "步骤描述", "type": "init|component|style|test|deploy"},
-    ...
-  ]
-}
-
-## 要求
-- 步骤数量 3~8 个
-- 每个步骤描述清晰、可验证
-- 按照依赖顺序排列（先做的基础步骤在前）
-- type 字段表示步骤类型：init(初始化)、component(组件)、style(样式)、test(测试)、deploy(部署)
-- 保持步骤粒度适中（不要太细也不要太粗）
-"""
+PLAN_SYSTEM_PROMPT = load_prompt_with_identity("03_plan")
 
 
 def _parse_plan_steps(raw_text, intent: str) -> list[dict]:

@@ -15,16 +15,18 @@ from .event_emitter import (
 )
 from app.config import llm  # 向后兼容，新代码建议用 model_router
 
+# ========== Prompt 加载（统一管理） ==========
+from app.prompts import load_prompt, load_prompt_with_identity
+
+_CODE_GEN_SYSTEM_PROMPT = load_prompt_with_identity("04_code_gen_system")
+# user prompt 是模板（含 {占位符}），不拼接 identity
+_CODE_GEN_USER_TEMPLATE = load_prompt("04_code_gen_user")
+
 logger = logging.getLogger(__name__)
 
 
 def code_gen_node(state: dict) -> dict:
-    """
-    代码生成节点函数
-
-    输入: state["user_message"], state.get("plan_steps"), state.get("ui_style_config")
-    输出: state + files (文件列表) + project_id
-    """
+    """Code Gen 节点入口：协调文件生成流程"""
     user_message = state.get("user_message", "")
     plan_steps = state.get("plan_steps", [])
     ui_style_config = state.get("ui_style_config", "")
@@ -42,9 +44,6 @@ def code_gen_node(state: dict) -> dict:
     generated_files = []
     install_result = {"success": False, "output": "skipped"}
 
-    # 模拟模式：工具未注册时直接跳过写文件和安装
-    _mock_mode = write_file_tool is None
-
     try:
         # 定义文件生成列表（内容生成与 I/O 解耦）
         file_generators = [
@@ -52,7 +51,7 @@ def code_gen_node(state: dict) -> dict:
             ("index.html",        "html",       _generate_index_html),
             ("vite.config.ts",    "typescript", _generate_vite_config),
             ("tsconfig.json",     "json",       _generate_ts_config),
-            ("src/App.tsx",       "typescript", lambda: _generate_app_component(user_message, plan_steps, ui_style_config, state)),
+            ("src/App.tsx",       "typescript", lambda: _generate_app_component(user_message, plan_steps, ui_style_config)),
             ("src/main.tsx",      "typescript", _generate_main_entry),
             ("src/index.css",     "css",        lambda: _generate_css_styles(ui_style_config)),
         ]
@@ -70,7 +69,6 @@ def code_gen_node(state: dict) -> dict:
                 result = write_file_tool.invoke({"path": file_path, "content": content, "session_id": session_id})
                 if not result.get("success"):
                     continue
-            # mock 模式：直接记录文件，不写盘
 
             generated_files.append({"path": file_path, "type": "file", "language": language})
             emit_file_created(file_path=file_path, name=file_path.split("/")[-1], language=language)
@@ -92,7 +90,6 @@ def code_gen_node(state: dict) -> dict:
 
     except Exception as e:
         logger.error(f"[CodeGen] 代码生成失败: {str(e)}")
-        # 推送错误状态
         generated_files = [
             {"path": "error.log", "type": "file", "language": "text", "error": str(e)}
         ]
@@ -104,6 +101,67 @@ def code_gen_node(state: dict) -> dict:
         "status": "generation_done",
         "install_status": "success" if install_result["success"] else "failed",
     }
+
+
+def _generate_app_component(user_message: str, plan_steps: list, ui_style_config: str) -> str:
+    """生成主要的App组件（使用外部 prompt 文件）"""
+    from app.core.model_router import get_llm_by_tier
+
+    node_llm = get_llm_by_tier("code_gen")
+
+    user_prompt = _CODE_GEN_USER_TEMPLATE.format(
+        user_message=user_message,
+        plan_steps=plan_steps,
+        ui_style_config=ui_style_config
+    )
+
+    try:
+        response = node_llm.invoke([
+            SystemMessage(content=_CODE_GEN_SYSTEM_PROMPT),
+            HumanMessage(content=user_prompt)
+        ])
+        return response.content.strip()
+    except Exception as e:
+        logger.error(f"[CodeGen] App 组件生成失败: {e}")
+        # 降级：返回基础组件
+        return '''import React, { useState } from 'react';
+
+function App() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <div className="container">
+      <header style={{ padding: '20px 0', textAlign: 'center' }}>
+        <h1>欢迎使用 PageForge</h1>
+        <p>你的React应用已经成功生成！</p>
+      </header>
+
+      <main style={{ padding: '40px 0' }}>
+        <div className="card" style={{ maxWidth: '400px', margin: '0 auto' }}>
+          <h2>计数器示例</h2>
+          <p>当前计数: <strong>{count}</strong></p>
+          <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => setCount(count + 1)}
+            >
+              增加
+            </button>
+            <button
+              className="btn"
+              style={{ backgroundColor: '#6c757d', color: 'white' }}
+              onClick={() => setCount(0)}
+            >
+              重置
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default App;'''
 
 
 def _generate_package_json(user_message: str, plan_steps: list, ui_style_config: str) -> str:
@@ -287,78 +345,3 @@ code {
   padding: 20px;
   margin: 10px 0;
 }'''
-
-
-def _generate_app_component(user_message: str, plan_steps: list, ui_style_config: str, state: dict = None) -> str:
-    """生成主要的App组件"""
-    from app.core.model_router import get_llm_by_tier
-
-    # code_gen 专用高配：更大 timeout + max_tokens，确保复杂组件不超时
-    node_llm = get_llm_by_tier("code_gen")
-
-    # 使用LLM生成具体的组件内容
-    prompt = f"""你是一个React开发者，需要根据用户需求和计划生成一个React组件。
-
-用户需求: {user_message}
-
-计划步骤: {plan_steps}
-
-UI风格配置: {ui_style_config}
-
-请生成一个完整的React函数组件(App.tsx)，要求：
-1. 使用TypeScript
-2. 使用函数组件和Hooks
-3. 包含基本的交互功能
-4. 遵循React最佳实践
-5. 组件应该完整且可运行
-
-输出格式：只返回TSX代码，不要包含markdown或其他说明。
-"""
-
-    try:
-        response = node_llm.invoke([
-            SystemMessage(content="你是一个专业的React开发者，擅长创建现代化的React应用。"),
-            HumanMessage(content=prompt)
-        ])
-        return response.content.strip()
-    except Exception as e:
-        logger.error(f"[CodeGen] App 组件生成失败: {e}")
-        # 如果LLM调用失败，返回一个基础的组件
-        return '''import React, { useState } from 'react';
-
-function App() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <div className="container">
-      <header style={{ padding: '20px 0', textAlign: 'center' }}>
-        <h1>欢迎使用 PageForge</h1>
-        <p>你的React应用已经成功生成！</p>
-      </header>
-
-      <main style={{ padding: '40px 0' }}>
-        <div className="card" style={{ maxWidth: '400px', margin: '0 auto' }}>
-          <h2>计数器示例</h2>
-          <p>当前计数: <strong>{count}</strong></p>
-          <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
-            <button
-              className="btn btn-primary"
-              onClick={() => setCount(count + 1)}
-            >
-              增加
-            </button>
-            <button
-              className="btn"
-              style={{ backgroundColor: '#6c757d', color: 'white' }}
-              onClick={() => setCount(0)}
-            >
-              重置
-            </button>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
-}
-
-export default App;'''

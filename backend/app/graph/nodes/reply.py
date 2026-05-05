@@ -17,16 +17,10 @@ from .llm_utils import stream_llm
 logger = logging.getLogger(__name__)
 
 
-REPLY_SYSTEM_PROMPT = """\
-你是一个友好的 AI 助手 PageForge，专注于帮助用户生成和管理前端项目。
+# ========== Prompt 加载（统一管理） ==========
+from app.prompts import load_prompt_with_identity
 
-## 回复要求
-- 简洁明了，不要太长（100 字以内）
-- 技术类问题要准确
-- 如果是代码生成完成，简要说明生成了什么文件
-- 合理使用 markdown 格式（加粗、列表）
-- 中文回复
-"""
+REPLY_SYSTEM_PROMPT = load_prompt_with_identity("05_reply")
 
 
 def _build_reply_context(state: dict) -> str:
