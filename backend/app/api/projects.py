@@ -77,29 +77,18 @@ async def get_file_content(
     if not abs_path.is_file():
         raise HTTPException(status_code=400, detail=f"Not a file: {path}")
 
-    # 读取内容
+    # 检测是否为二进制文件
     try:
         content = abs_path.read_text(encoding="utf-8")
+        is_binary = False
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail=f"Cannot read binary file: {path}")
+        is_binary = True
+        content = None
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Read error: {str(e)}")
 
-    # 推断语言
-    ext = path.split(".")[-1].lower() if "." in path else ""
-    language_map = {
-        "ts": "typescript", "tsx": "typescript",
-        "js": "javascript", "jsx": "javascript",
-        "json": "json", "css": "css", "scss": "scss",
-        "html": "html", "md": "markdown", "py": "python",
-        "yaml": "yaml", "yml": "yaml", "toml": "toml",
-    }
-    language = language_map.get(ext, "text")
-
     return {
-        "project_id": session_id,
-        "path": path,
         "content": content,
-        "language": language,
-        "size_bytes": abs_path.stat().st_size,
+        "isBinary": is_binary,
+        "success": True,
     }
