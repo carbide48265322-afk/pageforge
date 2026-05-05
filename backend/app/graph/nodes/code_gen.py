@@ -291,12 +291,10 @@ code {
 
 def _generate_app_component(user_message: str, plan_steps: list, ui_style_config: str, state: dict = None) -> str:
     """生成主要的App组件"""
-    # 使用 model_strategy 选择模型（委托给 model_router）
-    if state and "model_strategy" in state:
-        from app.core.model_router import get_model_for_node
-        node_llm = get_model_for_node("code_gen", state)
-    else:
-        node_llm = llm  # 降级：使用全局 chat 级别
+    from app.core.model_router import get_llm_by_tier
+
+    # code_gen 专用高配：更大 timeout + max_tokens，确保复杂组件不超时
+    node_llm = get_llm_by_tier("code_gen")
 
     # 使用LLM生成具体的组件内容
     prompt = f"""你是一个React开发者，需要根据用户需求和计划生成一个React组件。

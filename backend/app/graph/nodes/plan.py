@@ -39,11 +39,15 @@ PLAN_SYSTEM_PROMPT = """\
 """
 
 
-def _parse_plan_steps(raw_text: str, intent: str) -> list[dict]:
+def _parse_plan_steps(raw_text, intent: str) -> list[dict]:
     """
     从 LLM 返回的文本中解析 plan steps。
     解析失败时返回基于 intent 的内置降级方案。
     """
+    # 防御：确保 raw_text 是字符串（streaming chunk 可能是其他类型）
+    if not isinstance(raw_text, str):
+        raw_text = str(raw_text) if raw_text is not None else ""
+
     # 尝试提取 JSON
     text = raw_text.strip()
     if text.startswith("```"):
