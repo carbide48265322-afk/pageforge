@@ -1,10 +1,7 @@
-from .registry import ToolRegistry
+from .registry import ToolRegistry, registry
 from .discovery import AutoDiscover
 
-# 全局注册中心实例
-registry = ToolRegistry()
-
-# 自动发现器
+# 自动发现器（复用 registry.py 中的全局单例）
 discoverer = AutoDiscover(registry)
 
 def init_registry():
