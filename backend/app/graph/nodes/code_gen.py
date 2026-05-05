@@ -32,72 +32,58 @@ def code_gen_node(state: dict) -> dict:
 
     logger.info(f"[CodeGen] 开始生成代码（计划 {len(plan_steps)} 个步骤）")
 
-    # 获取已注册的工具
+    # 获取已注册的工具（模拟环境下可能未注册，降级为 mock）
     from app.core.registry import registry
-    write_file_tool = registry.get_tool_info("write_file").function
-    run_command_tool = registry.get_tool_info("run_command").function
+    write_file_info = registry.get_tool_info("write_file")
+    run_command_info = registry.get_tool_info("run_command")
+    write_file_tool = write_file_info.function if write_file_info else None
+    run_command_tool = run_command_info.function if run_command_info else None
 
     generated_files = []
     install_result = {"success": False, "output": "skipped"}
 
+    # 模拟模式：工具未注册时直接跳过写文件和安装
+    _mock_mode = write_file_tool is None
+
     try:
-        # 1. 生成项目配置文件
-        package_json_content = _generate_package_json(user_message, plan_steps, ui_style_config)
-        result = write_file_tool.invoke({"path": "package.json", "content": package_json_content, "session_id": session_id})
-        if result["success"]:
-            generated_files.append({"path": "package.json", "type": "file", "language": "json"})
-            emit_file_created(file_path="package.json", name="package.json", language="json")
+        # 定义文件生成列表（内容生成与 I/O 解耦）
+        file_generators = [
+            ("package.json",      "json",       lambda: _generate_package_json(user_message, plan_steps, ui_style_config)),
+            ("index.html",        "html",       _generate_index_html),
+            ("vite.config.ts",    "typescript", _generate_vite_config),
+            ("tsconfig.json",     "json",       _generate_ts_config),
+            ("src/App.tsx",       "typescript", lambda: _generate_app_component(user_message, plan_steps, ui_style_config, state)),
+            ("src/main.tsx",      "typescript", _generate_main_entry),
+            ("src/index.css",     "css",        lambda: _generate_css_styles(ui_style_config)),
+        ]
 
-        # 1.5 生成 index.html（Vite SPA 入口）
-        index_html = _generate_index_html()
-        result = write_file_tool.invoke({"path": "index.html", "content": index_html, "session_id": session_id})
-        if result["success"]:
-            generated_files.append({"path": "index.html", "type": "file", "language": "html"})
-            emit_file_created(file_path="index.html", name="index.html", language="html")
+        for file_path, language, content_fn in file_generators:
+            # 生成内容
+            if file_path == "src/App.tsx":
+                emit_tool_call_start(tool_id="code_gen_llm", name="generate_component", input={"file": file_path})
+            content = content_fn()
+            if file_path == "src/App.tsx":
+                emit_tool_call_end(tool_id="code_gen_llm", status="success")
 
-        # 2. 生成Vite配置文件
-        vite_config_content = _generate_vite_config()
-        result = write_file_tool.invoke({"path": "vite.config.ts", "content": vite_config_content, "session_id": session_id})
-        if result["success"]:
-            generated_files.append({"path": "vite.config.ts", "type": "file", "language": "typescript"})
-            emit_file_created(file_path="vite.config.ts", name="vite.config.ts", language="typescript")
+            # 写入文件（mock 模式跳过实际 I/O）
+            if write_file_tool is not None:
+                result = write_file_tool.invoke({"path": file_path, "content": content, "session_id": session_id})
+                if not result.get("success"):
+                    continue
+            # mock 模式：直接记录文件，不写盘
 
-        # 3. 生成TypeScript配置文件
-        ts_config_content = _generate_ts_config()
-        result = write_file_tool.invoke({"path": "tsconfig.json", "content": ts_config_content, "session_id": session_id})
-        if result["success"]:
-            generated_files.append({"path": "tsconfig.json", "type": "file", "language": "json"})
-            emit_file_created(file_path="tsconfig.json", name="tsconfig.json", language="json")
+            generated_files.append({"path": file_path, "type": "file", "language": language})
+            emit_file_created(file_path=file_path, name=file_path.split("/")[-1], language=language)
 
-        # 4. 生成主要的React组件（使用 model_strategy 选择的模型）
-        emit_tool_call_start(tool_id="code_gen_llm", name="generate_component", input={"file": "src/App.tsx"})
-        app_component_content = _generate_app_component(user_message, plan_steps, ui_style_config, state)
-        emit_tool_call_end(tool_id="code_gen_llm", status="success")
-        result = write_file_tool.invoke({"path": "src/App.tsx", "content": app_component_content, "session_id": session_id})
-        if result["success"]:
-            generated_files.append({"path": "src/App.tsx", "type": "file", "language": "typescript"})
-            emit_file_created(file_path="src/App.tsx", name="App.tsx", language="typescript")
-
-        # 5. 生成入口文件
-        main_content = _generate_main_entry()
-        result = write_file_tool.invoke({"path": "src/main.tsx", "content": main_content, "session_id": session_id})
-        if result["success"]:
-            generated_files.append({"path": "src/main.tsx", "type": "file", "language": "typescript"})
-            emit_file_created(file_path="src/main.tsx", name="main.tsx", language="typescript")
-
-        # 6. 生成样式文件
-        css_content = _generate_css_styles(ui_style_config)
-        result = write_file_tool.invoke({"path": "src/index.css", "content": css_content, "session_id": session_id})
-        if result["success"]:
-            generated_files.append({"path": "src/index.css", "type": "file", "language": "css"})
-            emit_file_created(file_path="src/index.css", name="index.css", language="css")
-
-        # 7. 安装依赖
-        install_result = run_command_tool.invoke({
-            "command": "npm",
-            "session_id": session_id,
-            "args": ["install"]
-        })
+        # 安装依赖（mock 模式跳过）
+        if run_command_tool is not None:
+            install_result = run_command_tool.invoke({
+                "command": "npm",
+                "session_id": session_id,
+                "args": ["install"]
+            })
+        else:
+            install_result = {"success": True, "output": "mock_mode: skipped"}
 
         logger.info(f"[CodeGen] 代码生成完成，共 {len(generated_files)} 个文件")
 

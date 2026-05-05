@@ -83,3 +83,7 @@ class ToolRegistry:
         """提取工具参数信息"""
         # 简化实现，实际可以从工具 schema 中提取
         return {}
+
+
+# 全局单例
+registry = ToolRegistry()
