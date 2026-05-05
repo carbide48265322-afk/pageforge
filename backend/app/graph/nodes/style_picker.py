@@ -4,23 +4,25 @@ Style Picker Node — P1.18
 
 风格选择节点：
 1. 从 state 取 ui_style（Intent Router 传入）
-2. 调用 ui-ux-pro-max CLI 获取风格数据（--design-system 模式）
+2. 调用 【Meooo】高级UI_UX 设计智能系统_v3 获取风格 tokens
+   - 读取 database.yaml 按产品类型/品牌调性/受众打分 → 选 Top 风格
+   - 读取 styles/<slug>.md 获取完整 design tokens
 3. 加载 frontend-design 设计哲学约束
 4. 合并为最终风格配置文本，存入 state.ui_style_config
 5. 通过 SSE 推送 style_selected 事件
 
 降级策略：
-- CLI 不可用时 → 使用内置 _FALLBACK_STYLES（与 intent_router.py 共享）
+- Meooo skill 不可用时 → 使用 intent_router 共享的 _FALLBACK_STYLES
 - frontend-design 不可用时 → 跳过哲学注入
 - 合并失败时 → 使用最小化配置
 """
 
 import json
 import logging
-import subprocess
 from pathlib import Path
 from typing import Optional
 
+import yaml
 from langgraph.config import get_stream_writer
 
 from app.graph.nodes.intent_router import (
@@ -30,13 +32,22 @@ from app.graph.nodes.intent_router import (
 
 logger = logging.getLogger(__name__)
 
+# ─── Meooo skill 路径 ────────────────────────────────────
+# __file__ = backend/app/graph/nodes/style_picker.py
+# skills/ 目录位于项目根 pageforge/（5 级 parent）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+_MEOOO_DIR = _PROJECT_ROOT / "skills" / "【Meoo】高级UI_UX 设计智能系统_v3"
+_MEOOO_DB = _MEOOO_DIR / "database.yaml"
+_MEOOO_STYLES_DIR = _MEOOO_DIR / "styles"
+_FRONTEND_DESIGN_SKILL = _PROJECT_ROOT / "skills" / "frontend-design" / "SKILL.md"
+
 
 # ========== 主节点函数 ==========
 
 def style_picker_node(state: dict) -> dict:
     """
     风格选择节点函数
-    
+
     输入: state["ui_style"], state["project_type"], state.get("tags", [])
     输出: state + ui_style_config (str, 用于注入后续 Prompt)
     """
@@ -46,13 +57,8 @@ def style_picker_node(state: dict) -> dict:
 
     logger.info(f"[StylePicker] 开始处理风格: {style_keyword} (项目类型: {project_type})")
 
-    # 构造查询关键词
-    query_keywords = f"{style_keyword} {project_type}"
-    if tags:
-        query_keywords += " " + " ".join(tags[:3])  # 取前3个 tag
-
-    # ---- 步骤1: 调用 ui-ux-pro-max CLI ----
-    design_system = _fetch_design_system(query_keywords, style_keyword)
+    # ---- 步骤1: 从 Meooo skill 获取设计系统数据 ----
+    design_system = _fetch_from_meooo(style_keyword, project_type, tags)
 
     # ---- 步骤2: 加载 frontend-design 设计哲学 ----
     design_philosophy = _load_frontend_design_rules()
@@ -76,66 +82,292 @@ def style_picker_node(state: dict) -> dict:
 
     logger.info(f"[StylePicker] 风格配置完成: {style_keyword}")
 
-    # 返回更新后的 state
     return {
         **state,
         "ui_style_config": final_config,
     }
 
 
-# ========== 获取设计系统数据 ==========
+# ========== 从 Meooo skill 获取设计数据 ==========
 
-def _fetch_design_system(query: str, fallback_style: str) -> dict:
-    """
-    调用 ui-ux-pro-max CLI 获取风格数据
-    
-    该 CLI 位于 skills/UI_UX/scripts/search.py
-    参数: <query> --design-system -f json
-    
-    降级: CLI 不可用时使用内置配置
-    """
-    # 尝试定位 CLI 脚本
-    # 路径相对于 backend/ 目录
-    backend_dir = Path(__file__).parent.parent.parent
-    cli_path = backend_dir / "skills" / "UI_UX" / "scripts" / "search.py"
+def _slugify(style_name: str) -> str:
+    """把风格名转为 slug 格式（lower-case, 空格替换为连字符）"""
+    return style_name.strip().lower().replace(" ", "-")
 
-    if not cli_path.exists():
-        logger.warning(f"[StylePicker] CLI 不存在: {cli_path}，使用降级配置")
-        return get_fallback_style_config(fallback_style)
+
+def _fetch_from_meooo(style_keyword: str, project_type: str, tags: list) -> dict:
+    """
+    从 【Meooo】高级UI_UX 设计智能系统_v3 获取风格数据。
+
+    流程：
+    1. 读取 database.yaml，按产品类型打分选 Top 风格
+    2. 读取对应的 styles/<slug>.md 获取完整 tokens
+    3. 若 Meooo 不可用则降级到 _FALLBACK_STYLES
+    """
+    # ── 降级：Meooo skill 不存在 ──
+    if not _MEOOO_DB.exists():
+        logger.warning(f"[StylePicker] Meooo skill 不存在: {_MEOOO_DB}，使用降级配置")
+        return get_fallback_style_config(style_keyword)
 
     try:
-        logger.debug(f"[StylePicker] 调用 CLI: {cli_path} {query}")
-        result = subprocess.run(
-            ["python3", str(cli_path), query, "--design-system", "-f", "json"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            cwd=str(backend_dir),
-        )
-
-        if result.returncode != 0:
-            logger.warning(f"[StylePicker] CLI 返回非零: {result.stderr[:200]}")
-            return get_fallback_style_config(fallback_style)
-
-        # 解析 JSON 输出
-        output = result.stdout.strip()
-        if not output:
-            return get_fallback_style_config(fallback_style)
-
-        design_system = json.loads(output)
-        logger.info(f"[StylePicker] CLI 成功获取设计系统数据")
-        return design_system
-
-    except subprocess.TimeoutExpired:
-        logger.warning("[StylePicker] CLI 超时（15s），使用降级配置")
-    except json.JSONDecodeError as e:
-        logger.warning(f"[StylePicker] CLI 输出 JSON 解析失败: {e}")
-    except FileNotFoundError:
-        logger.warning("[StylePicker] python3 未找到，使用降级配置")
+        db = yaml.safe_load(_MEOOO_DB.read_text(encoding="utf-8"))
     except Exception as e:
-        logger.warning(f"[StylePicker] CLI 调用异常: {e}")
+        logger.warning(f"[StylePicker] database.yaml 解析失败: {e}，使用降级配置")
+        return get_fallback_style_config(style_keyword)
 
-    return get_fallback_style_config(fallback_style)
+    # ── 步骤1: 查询匹配的风格 slug ──
+    matched_slug = _query_matched_style(db, style_keyword, project_type, tags)
+
+    # ── 步骤2: 读取风格文件 ──
+    if matched_slug:
+        style_data = _load_style_file(matched_slug)
+        if style_data:
+            logger.info(f"[StylePicker] Meooo 匹配风格: {matched_slug} → {style_data.get('name', matched_slug)}")
+            return style_data
+
+    # ── 降级：未找到匹配 ──
+    logger.info(f"[StylePicker] Meooo 未匹配到风格，使用降级配置")
+    return get_fallback_style_config(style_keyword)
+
+
+def _query_matched_style(db: dict, style_keyword: str, project_type: str, tags: list) -> Optional[str]:
+    """
+    基于 database.yaml 查询最匹配的风格 slug。
+
+    优先级：
+    1. style_keyword 直接匹配某个 slug
+    2. database.yaml product_types 按项目类型推荐
+    3. tags 中的关键词辅助匹配
+    """
+    product_types = db.get("product_types", {})
+
+    # 尝试将 project_type 映射到 database.yaml 的 key
+    # project_type 可能是 "react-vite-app" / "saas" 等
+    pt_key = _map_project_type(project_type)
+
+    if pt_key and pt_key in product_types:
+        pt_entry = product_types[pt_key]
+        primary = pt_entry.get("primary", [])
+        if primary:
+            return primary[0]  # 取第一个 primary 推荐
+
+    # 回退：遍历所有 product_types 找 keyword 匹配
+    for pt_key, entry in product_types.items():
+        if pt_key in style_keyword or style_keyword in pt_key:
+            primary = entry.get("primary", [])
+            if primary:
+                return primary[0]
+
+    # 最后尝试：style_keyword 本身作为 slug
+    candidate = _slugify(style_keyword)
+    if (_MEOOO_STYLES_DIR / f"{candidate}.md").exists():
+        return candidate
+
+    return None
+
+
+def _map_project_type(project_type: str) -> Optional[str]:
+    """将 project_type 映射到 database.yaml 的产品类型 key"""
+    mapping = {
+        "react-vite-app": "saas",
+        "saas": "saas",
+        "micro-saas": "micro-saas",
+        "ecommerce": "ecommerce",
+        "fintech": "fintech",
+        "healthcare": "healthcare",
+        "edtech": "edtech",
+        "devtools": "devtools",
+        "ai-ml": "ai-ml",
+        "web3": "web3",
+        "gaming": "gaming",
+        "productivity": "productivity",
+        "design-tools": "design-tools",
+        "media-streaming": "media-streaming",
+        "automotive": "automotive",
+    }
+    pt_lower = project_type.lower().strip()
+    return mapping.get(pt_lower, pt_lower if pt_lower in mapping else None)
+
+
+def _load_style_file(slug: str) -> Optional[dict]:
+    """
+    读取 styles/<slug>.md 并解析为 design_system dict。
+
+    Meooo 风格文件格式：
+    - frontmatter: name/version/description/keywords/style_type（无结构化颜色字段）
+    - body: ## Design Tokens（Colors/Typography/Border/Shadow）+ ## Component Recipes
+    """
+    style_path = _MEOOO_STYLES_DIR / f"{slug}.md"
+    if not style_path.exists():
+        return None
+
+    try:
+        content = style_path.read_text(encoding="utf-8")
+
+        # 分离 frontmatter 和 body
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            frontmatter = yaml.safe_load(parts[1]) if len(parts) >= 3 else {}
+            body = parts[2].strip() if len(parts) >= 3 else content
+        else:
+            frontmatter = {}
+            body = content
+
+        # 从 body 中提取 Design Tokens
+        tokens = _extract_tokens_from_body(body)
+
+        return {
+            "name": frontmatter.get("name", slug),
+            "slug": slug,
+            "description": frontmatter.get("description", ""),
+            "colors": tokens.get("colors", {}),
+            "typography": tokens.get("typography", {}),
+            "border_radius": tokens.get("border_radius", "0.375rem"),
+            "shadows": tokens.get("shadows", {}),
+            "anti_patterns": tokens.get("anti_patterns", []),
+            "component_recipes": tokens.get("component_recipes", {}),
+            # 保留 Design Tokens 原始文本供 _merge 使用
+            "_tokens_text": tokens.get("raw_text", "")[:1200],
+            "source": f"meooo/{slug}.md",
+        }
+
+    except Exception as e:
+        logger.warning(f"[StylePicker] 读取风格文件失败 {style_path}: {e}")
+        return None
+
+
+def _extract_tokens_from_body(body: str) -> dict:
+    """
+    从风格文件 body 中提取 Design Tokens。
+
+    解析 ## Design Tokens 下的 Colors / Typography / Border / Shadow 等子段落，
+    以及 ## Forbidden / Anti-patterns 段落。
+    """
+    result = {
+        "colors": {},
+        "typography": {},
+        "border_radius": "0.375rem",
+        "shadows": {},
+        "anti_patterns": [],
+        "component_recipes": {},
+        "raw_text": "",
+    }
+
+    lines = body.split("\n")
+    current_section = None  # e.g. "colors", "typography", "shadow", "anti_patterns"
+    token_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # 检测 ## Design Tokens 开始
+        if stripped == "## Design Tokens":
+            current_section = "tokens"
+            continue
+
+        # 检测其他 ## 标题（结束 Design Tokens 区域）
+        # 注意：只有从 tokens 层级遇到 ## 才退出；子章节内不退出
+        if current_section == "tokens" and stripped.startswith("## ") and stripped != "## Design Tokens":
+            current_section = None
+            break
+        # 子章节中遇到 ## 也退出（如 ## Component Recipes）
+        if current_section in ("colors", "typography", "border", "shadow", "other") and stripped.startswith("## "):
+            current_section = None
+            break
+
+        # 检测 ### 子标题（在 Design Tokens 区域内）
+        if current_section in ("tokens", "colors", "typography", "border", "shadow", "other") and stripped.startswith("### "):
+            sub = stripped[4:].lower()
+            if "color" in sub:
+                current_section = "colors"
+            elif "typography" in sub or "font" in sub:
+                current_section = "typography"
+            elif "border" in sub or "radius" in sub:
+                current_section = "border"
+            elif "shadow" in sub:
+                current_section = "shadow"
+            else:
+                current_section = "other"
+            continue
+
+        # 收集 token 行
+        if current_section in ("colors", "typography", "border", "shadow") and stripped.startswith("- "):
+            token_lines.append(stripped)
+            item = stripped[2:].strip()
+
+            # 解析 "Key: `value`" 格式
+            if ":" in item:
+                key, _, value = item.partition(":")
+                key = key.strip().lower()
+                # 去掉反引号
+                value = value.strip().strip("`")
+
+                if current_section == "colors":
+                    # Meooo 风格使用 Tailwind class 而非 hex 值
+                    # 例: Primary BG: `bg-white`, Primary Text: `text-black`
+                    if "primary" in key and "bg" in key:
+                        result["colors"].setdefault("bg_primary", value)
+                    elif "primary" in key and "text" in key:
+                        result["colors"].setdefault("text_primary", value)
+                    elif "primary" in key and "button" in key:
+                        result["colors"].setdefault("button_primary", value)
+                    elif "secondary" in key and "bg" in key:
+                        result["colors"].setdefault("bg_secondary", value)
+                    elif "secondary" in key and "text" in key:
+                        result["colors"].setdefault("text_secondary", value)
+                    elif "dark" in key and "bg" in key:
+                        result["colors"].setdefault("bg_dark", value)
+                    elif "muted" in key:
+                        result["colors"].setdefault("text_muted", value)
+                    elif "border" in key and "color" not in key:
+                        result["colors"].setdefault("border", value)
+                    elif "accent" in key:
+                        result["colors"].setdefault("accent", value)
+
+                elif current_section == "typography":
+                    if "font family" in key or "font_family" in key:
+                        result["typography"]["font_family"] = value
+                    elif "heading" in key and "weight" not in key:
+                        result["typography"]["heading_class"] = value
+                    elif "body" in key and "size" not in key:
+                        result["typography"]["body_class"] = value
+                    elif "weight" in key:
+                        result["typography"]["heading_weight"] = value
+
+                elif current_section == "border":
+                    if "radius" in key:
+                        result["border_radius"] = value
+
+                elif current_section == "shadow":
+                    result["shadows"].setdefault("sm", value)
+
+    # 收集 anti-patterns（在 body 其他位置）
+    in_forbidden = False
+    for line in lines:
+        stripped = line.strip()
+        if "forbidden" in stripped.lower() or "anti-pattern" in stripped.lower() or "anti_pattern" in stripped.lower():
+            in_forbidden = True
+            continue
+        if in_forbidden:
+            if stripped.startswith("## "):
+                in_forbidden = False
+                continue
+            if stripped.startswith("- "):
+                result["anti_patterns"].append(stripped[2:].strip())
+
+    result["raw_text"] = "\n".join(token_lines[:20])
+    return result
+
+
+def _looks_like_color(value: str) -> bool:
+    """判断字符串是否像颜色值（hex / rgb / Tailwind class）"""
+    v = value.lower()
+    if v.startswith("#") or v.startswith("rgb") or v.startswith("hsl"):
+        return True
+    # Tailwind 颜色类如 bg-black, text-white
+    color_keywords = ["black", "white", "gray", "slate", "zinc", "red", "blue", "green",
+                      "yellow", "purple", "pink", "indigo", "violet", "cyan", "teal", "orange"]
+    return any(kw in v for kw in color_keywords)
 
 
 # ========== 加载设计哲学 ==========
@@ -143,21 +375,16 @@ def _fetch_design_system(query: str, fallback_style: str) -> dict:
 def _load_frontend_design_rules() -> str:
     """
     读取 frontend-design SKILL.md 的核心规则（Frontend Aesthetics Guidelines 部分）
-    
+
     返回截断后的哲学文本（最多 1000 字符，避免 Prompt 过长）
     """
-    backend_dir = Path(__file__).parent.parent.parent
-    rules_path = backend_dir / "skills" / "frontend-design" / "SKILL.md"
-
-    if not rules_path.exists():
-        logger.debug(f"[StylePicker] frontend-design SKILL.md 不存在: {rules_path}")
+    if not _FRONTEND_DESIGN_SKILL.exists():
+        logger.debug(f"[StylePicker] frontend-design SKILL.md 不存在: {_FRONTEND_DESIGN_SKILL}")
         return ""
 
     try:
-        content = rules_path.read_text(encoding="utf-8")
+        content = _FRONTEND_DESIGN_SKILL.read_text(encoding="utf-8")
 
-        # 尝试提取 Frontend Aesthetics Guidelines 部分
-        # 查找关键段落并提取
         lines = content.split("\n")
         extracted = []
         in_section = False
@@ -168,17 +395,14 @@ def _load_frontend_design_rules() -> str:
                 continue
             if in_section:
                 if line.startswith("#") and len(extracted) > 0:
-                    # 遇到下一个标题，结束提取
                     break
                 extracted.append(line)
 
         if extracted:
-            philosophy = "\n".join(extracted[:30])  # 最多取 30 行
+            philosophy = "\n".join(extracted[:30])
         else:
-            # 未找到特定段落，取前 30 行
             philosophy = "\n".join(lines[:30])
 
-        # 截断过长内容
         if len(philosophy) > 1000:
             philosophy = philosophy[:1000] + "\n...(设计哲学已截断)"
 
@@ -194,43 +418,81 @@ def _load_frontend_design_rules() -> str:
 
 def _merge_style_config(design_system: dict, philosophy: str, style_keyword: str) -> str:
     """
-    合并 ui-ux-pro-max 数据 + frontend-design 哲学 → 最终注入 Prompt 的文本
-    
-    返回格式化的配置文本（用于直接注入 LLM Prompt）
+    合并 Meooo 数据 + frontend-design 哲学 → 最终注入 Prompt 的文本
+
+    Meooo 风格使用 Tailwind CSS class（而非 hex 值）描述颜色，
+    输出时直接列出这些 class，供 LLM 在生成代码时使用。
     """
     colors = design_system.get("colors", {})
     typography = design_system.get("typography", {})
     anti_patterns = design_system.get("anti_patterns", [])
     shadows = design_system.get("shadows", {})
     border_radius = design_system.get("border_radius", "0.375rem")
+    source = design_system.get("source", "fallback")
+    tokens_text = design_system.get("_tokens_text", "")
+    description = design_system.get("description", "")
 
-    # 构建配置文本
     config_lines = [
-        "## UI 风格配置（由 Style Picker 自动生成）",
-        "",
-        f"- 主色调：{colors.get('primary', '#171717')}",
-        f"- 辅助色：{colors.get('secondary', '#52525b')}",
-        f"- 背景色：{colors.get('background', '#ffffff')}",
-        f"- 强调色：{colors.get('accent', '#6366f1')}",
-        f"- 字体族：{typography.get('font_family', "'Inter', system-ui, sans-serif")}",
-        f"- 标题字重：{typography.get('heading_weight', '600')}",
-        f"- 正文字号：{typography.get('body_size', '14px')}",
-        f"- 圆角：{border_radius}",
-        f"- 阴影：{json.dumps(shadows.get('sm', {}))}",
-        "",
-        "## 反模式约束（禁止事项，必须严格遵守）",
+        "## UI 风格配置（由 Style Picker + 设计 Kungfu 生成）",
+        f"- 风格来源：{source}",
     ]
 
-    # 添加反模式（最多 8 条）
+    if description:
+        config_lines.append(f"- 风格描述：{description}")
+
+    config_lines.append("")
+
+    # ── 颜色（Tailwind class 格式）──
+    config_lines.append("## 颜色系统（Tailwind CSS class）")
+    color_items = [
+        ("主背景色", colors.get("bg_primary", "")),
+        ("次背景色", colors.get("bg_secondary", "")),
+        ("深色背景", colors.get("bg_dark", "")),
+        ("主文字色", colors.get("text_primary", "")),
+        ("次文字色", colors.get("text_secondary", "")),
+        ("弱化文字", colors.get("text_muted", "")),
+        ("主按钮", colors.get("button_primary", "")),
+        ("边框色", colors.get("border", "")),
+        ("强调色", colors.get("accent", "")),
+    ]
+    for label, value in color_items:
+        if value:
+            config_lines.append(f"- {label}：`{value}`")
+
+    config_lines.append("")
+
+    # ── 字体 ──
+    config_lines.append("## 字体系统")
+    if typography.get("font_family"):
+        config_lines.append(f"- 字体族：`{typography['font_family']}`")
+    if typography.get("heading_class"):
+        config_lines.append(f"- 标题样式：`{typography['heading_class']}`")
+    if typography.get("body_class"):
+        config_lines.append(f"- 正文样式：`{typography['body_class']}`")
+    if typography.get("heading_weight"):
+        config_lines.append(f"- 标题字重：`{typography['heading_weight']}`")
+
+    config_lines.append("")
+
+    # ── 圆角 & 阴影 ──
+    config_lines.append("## 圆角 & 阴影")
+    config_lines.append(f"- 圆角：`{border_radius}`")
+    if shadows.get("sm"):
+        config_lines.append(f"- 小阴影：`{shadows['sm']}`")
+
+    config_lines.append("")
+
+    # ── 反模式 ──
+    config_lines.append("## 反模式约束（禁止事项，必须严格遵守）")
     if anti_patterns:
-        for p in anti_patterns[:8]:
+        for p in anti_patterns[:10]:
             config_lines.append(f"- {p}")
     else:
         config_lines.append("- 不要用紫渐变")
         config_lines.append("- 不要用 Inter 之外的通用字体")
         config_lines.append("- 避免千篇一律的 AI 生成设计")
 
-    # 添加设计哲学（如果有）
+    # ── 设计哲学 ──
     if philosophy:
         config_lines.extend([
             "",
@@ -238,10 +500,19 @@ def _merge_style_config(design_system: dict, philosophy: str, style_keyword: str
             philosophy,
         ])
 
+    # ── 风格 tokens 原文 ──
+    if tokens_text:
+        config_lines.extend([
+            "",
+            "## 完整 Design Tokens（来自 设计 Kungfu）",
+            tokens_text,
+        ])
+
     config_lines.extend([
         "",
         f"## 风格关键词：{style_keyword}",
         "请严格遵循以上配置生成 UI 代码，不要偏离风格设定。",
+        "优先使用上述 Tailwind CSS class，不要替换为其他值。",
     ])
 
     return "\n".join(config_lines)
