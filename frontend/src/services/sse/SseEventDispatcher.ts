@@ -1,12 +1,16 @@
 /**
  * SSE 事件分发器
  * 三层架构的核心：连接管理 + 事件路由
+ *
+ * 设计：后端统一用 event: message，细分类型在 data.type 中。
+ * 前端只需监听一个 message 事件，通过 data.type 分发到对应 handler。
+ *
  * 支持两种模式：
- * 1. GET 模式（EventSource）：用于监听事件
- * 2. POST 模式（fetch + 流读取）：用于发送消息并接收 SSE 流
+ * 1. GET 模式（EventSource）：监听 message 事件，从 data.type 分发
+ * 2. POST 模式（fetch + 流读取）：解析 SSE 行，从 data.type 分发
  */
 
-import type { SSEEvent, ThinkingBlock, PlanBlock, ToolCallBlock, FileNode, IntentResult, StyleConfig } from './types';
+import type { ThinkingBlock, PlanBlock, ToolCallBlock, FileNode, IntentResult, StyleConfig, TextBlock, CommandOutput } from './types';
 import { parseSSELine, parseSSEMessage } from './utils/parseEvent';
 import { thinkingHandler } from './handlers/thinkingHandler';
 import { planHandler } from './handlers/planHandler';
@@ -15,8 +19,10 @@ import { fileEventHandler } from './handlers/fileEventHandler';
 import { statusHandler } from './handlers/statusHandler';
 import { intentHandler } from './handlers/intentHandler';
 import { styleHandler } from './handlers/styleHandler';
+import { textHandler } from './handlers/textHandler';
+import { commandOutputHandler } from './handlers/commandOutputHandler';
 
-// 事件名 → handler 映射表（注册制，新增事件只需加一行）
+// data.type → handler 映射表（注册制，新增事件只需加一行）
 const HANDLER_MAP: Record<string, (data: unknown) => void> = {
   'thinking_start': thinkingHandler.onStart,
   'thinking_delta': thinkingHandler.onDelta,
@@ -40,6 +46,9 @@ const HANDLER_MAP: Record<string, (data: unknown) => void> = {
   'intent:style_query': intentHandler.onStyleQuery,
   'intent:style_selected': intentHandler.onStyleSelected,
   'style_selected': styleHandler.onSelected,
+  'text_delta': textHandler.onDelta,
+  'text_done': textHandler.onDone,
+  'command_output': commandOutputHandler.onOutput,
   'error': (data: unknown) => console.error('SSE Error:', data),
 };
 
@@ -57,7 +66,7 @@ export class SseEventDispatcher {
   }
 
   /**
-   * 订阅某类事件的数据变化
+   * 订阅某类事件的数据变化（按 data.type 过滤）
    * @returns 取消订阅函数
    */
   on(eventType: string, callback: (data: unknown) => void): () => void {
@@ -66,7 +75,6 @@ export class SseEventDispatcher {
     }
     this.listeners.get(eventType)!.add(callback);
 
-    // 返回取消订阅函数
     return () => {
       const listeners = this.listeners.get(eventType);
       if (listeners) {
@@ -80,6 +88,7 @@ export class SseEventDispatcher {
 
   /**
    * 建立 GET SSE 连接（仅监听事件）
+   * 统一监听 message 事件，从 data.type 分发
    */
   connect(): void {
     if (this.eventSource) {
@@ -88,9 +97,18 @@ export class SseEventDispatcher {
 
     this.eventSource = new EventSource(this.url);
 
-    this.eventSource.onmessage = (event) => {
-      this.handleSSEData(event.data);
-    };
+    // 统一监听 message 事件，从 data.type 分发
+    this.eventSource.addEventListener('message', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const eventType = data?.type as string;
+        if (eventType) {
+          this.handleSSEEvent(eventType, data);
+        }
+      } catch {
+        // 忽略 JSON 解析错误
+      }
+    });
 
     this.eventSource.onerror = (error) => {
       console.error('SSE connection error:', error);
@@ -99,12 +117,13 @@ export class SseEventDispatcher {
 
     this.eventSource.onopen = () => {
       console.log('SSE connection established');
-      this.reconnectAttempts = 0; // 重置重连计数
+      this.reconnectAttempts = 0;
     };
   }
 
   /**
    * 发送消息并接收 SSE 流（POST 模式）
+   * 解析 SSE 行，从 data.type 分发
    * @returns AbortController 可用于取消请求
    */
   sendMessage(message: string): AbortController {
@@ -142,7 +161,18 @@ export class SseEventDispatcher {
               const dataStr = line.slice(5).trim();
               try {
                 const data = JSON.parse(dataStr);
-                this.handleSSEEvent(currentEvent, data);
+                // 统一从 data.type 获取事件类型
+                if (currentEvent === 'message') {
+                  const eventType = data?.type as string;
+                  if (eventType) {
+                    this.handleSSEEvent(eventType, data);
+                  }
+                } else {
+                  // 旧格式兼容：直接用 SSE event 字段
+                  if (currentEvent) {
+                    this.handleSSEEvent(currentEvent, data);
+                  }
+                }
               } catch {
                 // 忽略 JSON 解析错误
               }
@@ -158,7 +188,6 @@ export class SseEventDispatcher {
         }
       })
       .finally(() => {
-        // 从活跃控制器列表中移除
         const index = this.activeAbortControllers.indexOf(controller);
         if (index > -1) {
           this.activeAbortControllers.splice(index, 1);
@@ -172,32 +201,20 @@ export class SseEventDispatcher {
    * 关闭所有连接
    */
   disconnect(): void {
-    // 清理重连定时器
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
 
-    // 关闭 EventSource
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
     }
 
-    // 取消所有活跃的 POST 请求
     this.activeAbortControllers.forEach(controller => {
       try { controller.abort(); } catch {}
     });
     this.activeAbortControllers = [];
-  }
-
-  /**
-   * 处理 SSE 数据（共享逻辑）
-   */
-  private handleSSEData(raw: string): void {
-    const parsed = parseSSELine(raw);
-    if (!parsed) return;
-    this.handleSSEEvent(parsed.event, parsed.data);
   }
 
   /**
