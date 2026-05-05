@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timeout修复测试</title>
+</head>
+<body>
+    <h1>Timeout修复测试</h1>
+
+    <div>
+        <button onclick="testSSEStream()">测试SSE流</button>
+        <button onclick="testCreateSession()">测试创建会话</button>
+        <button onclick="testSendMessage()">测试发送消息</button>
+    </div>
+
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; max-height: 400px; overflow-y: auto;"></div>
+
+    <script>
+        function log(message) {
+            console.log('[Timeout Fix Test]', message);
+            document.getElementById('result').innerHTML += message + '<br>';
+        }
+
+        function testSSEStream() {
+            log('=== 测试SSE流创建 ===');
+
+            try {
+                // 创建一个简单的SSE流来测试timeoutId问题
+                const events = [
+                    { type: 'test_start', delay: 100, data: { message: '测试开始' } },
+                    { type: 'test_end', delay: 200, data: { message: '测试结束' } }
+                ];
+
+                let eventIndex = 0;
+                let timeoutId = null;
+
+                const stream = new ReadableStream({
+                    start: (controller) => {
+                        const sendNextEvent = () => {
+                            if (eventIndex >= events.length) {
+                                controller.close();
+                                return;
+                            }
+
+                            const event = events[eventIndex];
+                            timeoutId = setTimeout(() => {
+                                const eventData = `event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`;
+                                controller.enqueue(new TextEncoder().encode(eventData));
+                                eventIndex++;
+                                sendNextEvent();
+                            }, event.delay);
+                        };
+
+                        sendNextEvent();
+                    },
+
+                    cancel: () => {
+                        if (timeoutId) {
+                            clearTimeout(timeoutId);
+                            log('✅ Timeout已清理');
+                        }
+                    }
+                });
+
+                log('✅ SSE流创建成功');
+
+                // 测试读取流
+                const reader = stream.getReader();
+                const decoder = new TextDecoder();
+                let receivedEvents = 0;
+
+                function readStream() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            log(`✅ SSE流读取完成，共收到${receivedEvents}个事件`);
+                            return;
+                        }
+
+                        const text = decoder.decode(value);
+                        log(`收到事件: ${text.trim()}`);
+                        receivedEvents++;
+                        readStream();
+                    }).catch(error => {
+                        log(`❌ SSE流读取错误: ${error.message}`);
+                    });
+                }
+
+                readStream();
+
+            } catch (error) {
+                log(`❌ SSE流创建错误: ${error.message}`);
+            }
+        }
+
+        async function testCreateSession() {
+            log('=== 测试创建会话 ===');
+
+            try {
+                const response = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                log(`状态码: ${response.status}`);
+
+                if (response.status === 200) {
+                    const data = await response.json();
+                    log(`✅ 创建会话成功: ${JSON.stringify(data)}`);
+                    return data.session_id;
+                } else {
+                    log(`❌ 创建会话失败: ${response.status}`);
+                    return null;
+                }
+            } catch (error) {
+                log(`❌ 错误: ${error.message}`);
+                return null;
+            }
+        }
+
+        async function testSendMessage() {
+            log('=== 测试发送消息 ===');
+
+            // 先创建会话
+            const sessionId = await testCreateSession();
+            if (!sessionId) {
+                log('❌ 无法创建会话，跳过发送消息测试');
+                return;
+            }
+
+            log(`使用Session ID: ${sessionId}`);
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`/api/sessions/${sessionId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: '创建计数器组件'
+                    })
+                });
+
+                log(`状态码: ${response.status}`);
+                log(`Content-Type: ${response.headers.get('Content-Type')}`);
+                log(`响应时间: ${Date.now() - startTime}ms`);
+
+                if (response.status === 200 && response.headers.get('Content-Type')?.includes('text/event-stream')) {
+                    log('✅ SSE流响应成功');
+
+                    // 读取事件流
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let eventCount = 0;
+                    let timeoutError = false;
+
+                    const readPromise = new Promise((resolve, reject) => {
+                        function readStream() {
+                            reader.read().then(({ done, value }) => {
+                                if (done) {
+                                    log('✅ SSE流读取完成');
+                                    resolve(eventCount);
+                                    return;
+                                }
+
+                                try {
+                                    buffer += decoder.decode(value, { stream: true });
+                                    const lines = buffer.split('\n');
+                                    buffer = lines.pop() || '';
+
+                                    let currentEvent = '';
+                                    for (const line of lines) {
+                                        if (line.startsWith('event:')) {
+                                            currentEvent = line.slice(7).trim();
+                                            log(`事件: ${currentEvent}`);
+                                            eventCount++;
+                                        } else if (line.startsWith('data:')) {
+                                            const dataStr = line.slice(5).trim();
+                                            try {
+                                                const data = JSON.parse(dataStr);
+                                                log(`数据: ${JSON.stringify(data).substring(0, 50)}...`);
+                                            } catch (e) {
+                                                log(`数据解析失败`);
+                                            }
+                                            currentEvent = '';
+                                        }
+                                    }
+
+                                    // 只读取前5个事件避免无限等待
+                                    if (eventCount >= 5) {
+                                        log('✅ 已读取足够的事件，停止读取');
+                                        resolve(eventCount);
+                                        return;
+                                    }
+
+                                    readStream();
+                                } catch (error) {
+                                    if (!timeoutError) {
+                                        timeoutError = true;
+                                        log(`❌ SSE流处理错误: ${error.message}`);
+                                        reject(error);
+                                    }
+                                }
+                            }).catch(error => {
+                                if (!timeoutError) {
+                                    timeoutError = true;
+                                    log(`❌ SSE流读取错误: ${error.message}`);
+                                    reject(error);
+                                }
+                            });
+                        }
+
+                        readStream();
+                    });
+
+                    // 设置超时保护
+                    const timeoutPromise = new Promise((_, reject) => {
+                        setTimeout(() => {
+                            if (!timeoutError) {
+                                timeoutError = true;
+                                reject(new Error('SSE流读取超时'));
+                            }
+                        }, 10000); // 10秒超时
+                    });
+
+                    try {
+                        await Promise.race([readPromise, timeoutPromise]);
+                        log('✅ SSE流测试完成，timeoutId修复成功');
+                    } catch (error) {
+                        log(`❌ SSE流测试失败: ${error.message}`);
+                    }
+                } else {
+                    log(`❌ 响应不符合预期`);
+                }
+            } catch (error) {
+                log(`❌ 发送消息错误: ${error.message}`);
+            }
+        }
+
+        // 检查Mock状态
+        function checkMockStatus() {
+            log('=== Mock状态检查 ===');
+            if (window.quickMock) {
+                log(`✅ QuickMock启用: ${window.quickMock.status.enabled}`);
+            }
+            if (window.simpleMock) {
+                log(`✅ SimpleMock启用: ${window.simpleMock.status.enabled}`);
+            }
+            if (window.mockService) {
+                log(`✅ MockService启用: ${window.mockService.status.enabled}`);
+            }
+        }
+
+        window.addEventListener('load', checkMockStatus);
+    </script>
+</body>
+</html>

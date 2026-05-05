@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock系统即时测试</title>
+</head>
+<body>
+    <h1>Mock系统即时测试</h1>
+
+    <div>
+        <button onclick="testMockStatus()">检查Mock状态</button>
+        <button onclick="testCreateSession()">测试创建会话</button>
+        <button onclick="testSendMessage()">测试发送消息</button>
+    </div>
+
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; max-height: 400px; overflow-y: auto;"></div>
+
+    <script>
+        function log(message) {
+            console.log('[Mock Test]', message);
+            document.getElementById('result').innerHTML += message + '<br>';
+        }
+
+        function testMockStatus() {
+            log('=== Mock状态检查 ===');
+
+            if (window.quickMock) {
+                const status = window.quickMock.status;
+                log(`✅ QuickMock已加载`);
+                log(`启用状态: ${status.enabled}`);
+                log(`初始化状态: ${status.initialized}`);
+                log(`可用场景: ${status.scenarios.join(', ')}`);
+
+                if (!status.enabled) {
+                    log('🔄 尝试启用Mock模式...');
+                    window.quickMock.enable();
+                    log(`新状态: ${window.quickMock.status.enabled}`);
+                }
+            } else {
+                log('❌ QuickMock未加载');
+            }
+
+            if (window.simpleMock) {
+                log(`✅ SimpleMock: ${window.simpleMock.status.enabled}`);
+            }
+
+            if (window.mockService) {
+                log(`✅ MockService: ${window.mockService.status.enabled}`);
+            }
+
+            // 检查环境
+            log(`开发环境: ${import.meta?.env?.DEV || '未知'}`);
+            log(`Mock模式: ${import.meta?.env?.VITE_MOCK_MODE || '未设置'}`);
+        }
+
+        async function testCreateSession() {
+            log('=== 测试创建会话 ===');
+
+            try {
+                const response = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                log(`状态码: ${response.status}`);
+                log(`Content-Type: ${response.headers.get('Content-Type')}`);
+
+                if (response.status === 200) {
+                    const data = await response.json();
+                    log(`✅ 成功: ${JSON.stringify(data)}`);
+                    return data.session_id;
+                } else {
+                    log(`❌ 失败: ${response.status}`);
+                    return null;
+                }
+            } catch (error) {
+                log(`❌ 错误: ${error.message}`);
+                return null;
+            }
+        }
+
+        async function testSendMessage() {
+            log('=== 测试发送消息 ===');
+
+            // 先创建会话
+            const sessionId = await testCreateSession();
+            if (!sessionId) {
+                log('❌ 无法创建会话，跳过发送消息测试');
+                return;
+            }
+
+            log(`使用Session ID: ${sessionId}`);
+
+            try {
+                const response = await fetch(`/api/sessions/${sessionId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: '创建计数器组件'
+                    })
+                });
+
+                log(`状态码: ${response.status}`);
+                log(`Content-Type: ${response.headers.get('Content-Type')}`);
+
+                if (response.status === 200 && response.headers.get('Content-Type')?.includes('text/event-stream')) {
+                    log('✅ SSE流响应成功');
+
+                    // 读取前几个事件
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let eventCount = 0;
+
+                    while (eventCount < 3) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        let currentEvent = '';
+                        for (const line of lines) {
+                            if (line.startsWith('event:')) {
+                                currentEvent = line.slice(7).trim();
+                                log(`事件: ${currentEvent}`);
+                                eventCount++;
+                            } else if (line.startsWith('data:')) {
+                                const dataStr = line.slice(5).trim();
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    log(`数据: ${JSON.stringify(data).substring(0, 50)}...`);
+                                } catch (e) {
+                                    log(`数据解析失败`);
+                                }
+                                currentEvent = '';
+                            }
+                        }
+                    }
+                } else {
+                    log(`❌ 响应不符合预期`);
+                }
+            } catch (error) {
+                log(`❌ 错误: ${error.message}`);
+            }
+        }
+
+        // 页面加载时自动检查
+        window.addEventListener('load', () => {
+            log('🎯 Mock系统即时测试页面已加载');
+            log('📝 点击上方按钮运行测试');
+            log('🔍 开发环境应自动启用Mock模式');
+        });
+    </script>
+</body>
+</html>

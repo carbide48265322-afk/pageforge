@@ -1,48 +1,40 @@
 import { Panel, Group, Separator } from "react-resizable-panels";
 
-/** ResizableLayout 组件的 props */
 interface ResizableLayoutProps {
-    /** 左侧面板内容（聊天区） */
     leftPanel: React.ReactNode;
-    /** 右侧面板内容（预览区） */
     rightPanel: React.ReactNode;
-    /** 右侧面板是否展开 */
-    isRightOpen: boolean;
 }
 
-/**
- * 可拖拽分栏布局组件
- * 左侧聊天区 + 右侧预览区，中间拖拽调整宽度
- * 右侧面板关闭时左侧占满宽度
- */
 export function ResizableLayout({
     leftPanel,
     rightPanel,
-    isRightOpen,
 }: ResizableLayoutProps) {
     return (
-        <Group orientation="horizontal">
-            {/* 左侧面板：聊天区 */}
-            <Panel defaultSize={isRightOpen ? 50 : 100} minSize={30}>
-                {leftPanel}
-            </Panel>
+        <div className="flex h-full bg-gray-50 select-none outline-none">
+            <Group orientation="horizontal" className="flex-1 select-none outline-none">
+                <Panel defaultSize={50} minSize={30}>
+                    <div className="h-full">
+                        {leftPanel}
+                    </div>
+                </Panel>
 
-            {/* 右侧面板：预览区（仅展开时显示） */}
-            {isRightOpen && (
-                <>
-                    {/* 拖拽分割条 */}
-                    <Separator className="w-1.5 bg-gray-200 hover:bg-blue-400
-                        active:bg-blue-500 transition-colors cursor-col-resize
-                        relative group">
-                        {/* 拖拽手柄视觉提示 */}
-                        <div className="absolute inset-y-0 -left-1 -right-1" />
-                    </Separator>
+                <Separator className="w-3 bg-transparent cursor-col-resize relative group z-36 select-none outline-none" style={{ width: '12px' }}>
+                    <div className="absolute z-0 inset-y-0 left-1/2 w-5" />
+                    <div className="absolute z-[1] left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                        style={{ width: '2px', height: '420px' }}>
+                        <div className="absolute inset-0"
+                            style={{ background: 'linear-gradient(to bottom, transparent 0%, #7669FF 50%, transparent 100%)' }} />
+                    </div>
+                    <div className="absolute z-[2] opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                        style={{ width: '4px', height: '62px', borderRadius: '999px', background: '#6455FF', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
+                </Separator>
 
-                    <Panel defaultSize={50} minSize={25}>
+                <Panel defaultSize={50} minSize={25}>
+                    <div className="h-full bg-gray-50 rounded-xl shadow-lg overflow-hidden">
                         {rightPanel}
-                    </Panel>
-                </>
-            )}
-        </Group>
+                    </div>
+                </Panel>
+            </Group>
+        </div>
     );
 }

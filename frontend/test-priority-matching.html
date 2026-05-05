@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL匹配优先级测试</title>
+</head>
+<body>
+    <h1>URL匹配优先级测试</h1>
+
+    <div>
+        <button onclick="testPriorityMatching()">测试优先级匹配</button>
+        <button onclick="testRealApiCalls()">测试真实API调用</button>
+    </div>
+
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; max-height: 400px; overflow-y: auto;"></div>
+
+    <script>
+        function log(message) {
+            console.log('[Priority Test]', message);
+            document.getElementById('result').innerHTML += message + '<br>';
+        }
+
+        // 测试URL匹配优先级
+        function testPriorityMatching() {
+            log('=== URL匹配优先级测试 ===');
+
+            const testUrls = [
+                // 应该优先匹配"发送消息"而不是"创建会话"
+                '/api/sessions/test-session-123/messages',
+                '/api/sessions/mock_session_1777958876434/messages',
+                '/api/sessions/abc-def-ghi/messages',
+
+                // 应该匹配"创建会话"（中等匹配）
+                '/api/sessions',
+
+                // 不应该匹配任何模式
+                '/api/users',
+                '/api/projects'
+            ];
+
+            const patterns = [
+                // 精确匹配优先级：从上到下，越精确的URL模式越在上面
+                {
+                    pattern: /\/api\/sessions\/[^/]+\/messages$/,
+                    method: 'POST',
+                    name: '发送消息 (精确匹配)'
+                },
+                {
+                    pattern: /\/api\/sessions$/,
+                    method: 'POST',
+                    name: '创建会话 (中等匹配)'
+                },
+                {
+                    pattern: /\/api\/sessions/,
+                    method: 'POST',
+                    name: '创建会话 (宽泛匹配)'
+                }
+            ];
+
+            testUrls.forEach((url, index) => {
+                log(`\n测试 #${index + 1}: ${url}`);
+                let matched = false;
+
+                for (let i = 0; i < patterns.length; i++) {
+                    const { pattern, method, name } = patterns[i];
+                    if (pattern.test(url) && method === 'POST') {
+                        log(`  ✅ 匹配: ${name} (优先级: ${i + 1})`);
+                        matched = true;
+                        break; // 一旦匹配就停止，确保优先级的正确性
+                    }
+                }
+
+                if (!matched) {
+                    log(`  ❌ 无匹配`);
+                }
+            });
+
+            log('\n🎯 优先级测试要点:');
+            log('1. /api/sessions/*/messages 应该匹配"发送消息"而不是"创建会话"');
+            log('2. /api/sessions 应该匹配"创建会话"');
+            log('3. 其他URL不应该匹配任何模式');
+        }
+
+        // 测试真实API调用
+        async function testRealApiCalls() {
+            log('=== 真实API调用测试 ===');
+
+            try {
+                // 测试1: 创建会话
+                log('\n测试1: 创建会话');
+                const sessionResponse = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                log(`状态: ${sessionResponse.status}`);
+                const sessionData = await sessionResponse.json();
+                log(`响应: ${JSON.stringify(sessionData)}`);
+
+                // 测试2: 发送消息（使用上一步创建的session ID）
+                if (sessionData.session_id) {
+                    log('\n测试2: 发送消息');
+                    log(`使用Session ID: ${sessionData.session_id}`);
+
+                    const messageResponse = await fetch(`/api/sessions/${sessionData.session_id}/messages`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            message: '创建计数器组件'
+                        })
+                    });
+
+                    log(`状态: ${messageResponse.status}`);
+                    log(`Content-Type: ${messageResponse.headers.get('Content-Type')}`);
+
+                    // 读取SSE流的前几个事件
+                    if (messageResponse.body) {
+                        const reader = messageResponse.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+                        let eventCount = 0;
+
+                        log('\nSSE流事件:');
+                        while (eventCount < 5) { // 读取前5个事件
+                            const { done, value } = await reader.read();
+                            if (done) break;
+
+                            buffer += decoder.decode(value, { stream: true });
+                            const lines = buffer.split('\n');
+                            buffer = lines.pop() || '';
+
+                            let currentEvent = '';
+                            for (const line of lines) {
+                                if (line.startsWith('event:')) {
+                                    currentEvent = line.slice(7).trim();
+                                    log(`  事件: ${currentEvent}`);
+                                    eventCount++;
+                                } else if (line.startsWith('data:')) {
+                                    const dataStr = line.slice(5).trim();
+                                    try {
+                                        const data = JSON.parse(dataStr);
+                                        log(`  数据: ${JSON.stringify(data).substring(0, 100)}...`);
+                                    } catch (e) {
+                                        log(`  数据解析失败: ${dataStr.substring(0, 50)}...`);
+                                    }
+                                    currentEvent = '';
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                log(`\n错误: ${error.message}`);
+            }
+        }
+
+        // 检查Mock状态
+        function checkMockStatus() {
+            log('=== Mock状态检查 ===');
+            if (window.quickMock) {
+                log(`QuickMock启用: ${window.quickMock.status.enabled}`);
+                log(`QuickMock场景: ${window.quickMock.status.scenarios.join(', ')}`);
+            }
+            if (window.simpleMock) {
+                log(`SimpleMock启用: ${window.simpleMock.status.enabled}`);
+            }
+            if (window.mockService) {
+                log(`MockService启用: ${window.mockService.status.enabled}`);
+            }
+        }
+
+        window.addEventListener('load', checkMockStatus);
+    </script>
+</body>
+</html>

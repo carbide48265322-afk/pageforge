@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>宽泛匹配测试</title>
+</head>
+<body>
+    <h1>宽泛匹配测试</h1>
+
+    <div>
+        <button onclick="testPatternMatching()">运行模式匹配测试</button>
+        <button onclick="testRealApi()">测试真实API调用</button>
+    </div>
+
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; max-height: 400px; overflow-y: auto;"></div>
+
+    <script>
+        function log(message) {
+            console.log('[Pattern Test]', message);
+            document.getElementById('result').innerHTML += message + '<br>';
+        }
+
+        // 模式匹配测试
+        function testPatternMatching() {
+            log('=== 模式匹配测试 ===');
+
+            const testUrls = [
+                '/api/sessions/test-session-123/messages',
+                '/api/sessions/mock_session_1777958876434/messages',
+                '/api/sessions/abc-def-ghi/messages',
+                '/api/sessions/123/messages',
+                '/api/sessions',
+                '/api/users',
+                '/api/projects'
+            ];
+
+            const patterns = [
+                // 精确匹配优先级：从上到下，越精确的URL模式越在上面
+                {
+                    pattern: /\/api\/sessions\/[^/]+\/messages$/,
+                    method: 'POST',
+                    name: '发送消息 (精确匹配)'
+                },
+                {
+                    pattern: /\/api\/sessions$/,
+                    method: 'POST',
+                    name: '创建会话 (中等匹配)'
+                },
+                {
+                    pattern: /\/api\/sessions/,
+                    method: 'POST',
+                    name: '创建会话 (宽泛匹配)'
+                }
+            ];
+
+            testUrls.forEach(url => {
+                log(`测试URL: ${url}`);
+                let matched = false;
+
+                for (const { pattern, method, name } of patterns) {
+                    if (pattern.test(url) && method === 'POST') {
+                        log(`  ✅ 匹配: ${name}`);
+                        matched = true;
+                        break;
+                    }
+                }
+
+                if (!matched) {
+                    log(`  ❌ 无匹配`);
+                }
+            });
+        }
+
+        // 真实API测试
+        async function testRealApi() {
+            log('=== 真实API调用测试 ===');
+
+            try {
+                // 测试创建会话
+                log('测试: 创建会话');
+                const sessionResponse = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                log(`状态: ${sessionResponse.status}`);
+                const sessionData = await sessionResponse.json();
+                log(`响应: ${JSON.stringify(sessionData)}`);
+
+                // 测试发送消息
+                if (sessionData.session_id) {
+                    log('测试: 发送消息');
+                    const messageResponse = await fetch(`/api/sessions/${sessionData.session_id}/messages`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            message: '创建计数器组件'
+                        })
+                    });
+                    log(`状态: ${messageResponse.status}`);
+                    log(`Content-Type: ${messageResponse.headers.get('Content-Type')}`);
+
+                    // 读取SSE流
+                    if (messageResponse.body) {
+                        const reader = messageResponse.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+                        let eventCount = 0;
+
+                        while (eventCount < 3) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+
+                            buffer += decoder.decode(value, { stream: true });
+                            const lines = buffer.split('\n');
+                            buffer = lines.pop() || '';
+
+                            let currentEvent = '';
+                            for (const line of lines) {
+                                if (line.startsWith('event:')) {
+                                    currentEvent = line.slice(7).trim();
+                                    log(`事件: ${currentEvent}`);
+                                    eventCount++;
+                                } else if (line.startsWith('data:')) {
+                                    const dataStr = line.slice(5).trim();
+                                    try {
+                                        const data = JSON.parse(dataStr);
+                                        log(`数据: ${JSON.stringify(data).substring(0, 50)}...`);
+                                    } catch (e) {
+                                        log(`数据解析失败`);
+                                    }
+                                    currentEvent = '';
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                log(`错误: ${error.message}`);
+            }
+        }
+
+        // 检查Mock状态
+        function checkMockStatus() {
+            log('=== Mock状态检查 ===');
+            if (window.quickMock) {
+                log(`QuickMock启用: ${window.quickMock.status.enabled}`);
+            }
+            if (window.simpleMock) {
+                log(`SimpleMock启用: ${window.simpleMock.status.enabled}`);
+            }
+            if (window.mockService) {
+                log(`MockService启用: ${window.mockService.status.enabled}`);
+            }
+        }
+
+        window.addEventListener('load', checkMockStatus);
+    </script>
+</body>
+</html>

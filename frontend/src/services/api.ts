@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:9565/api";
+const API_BASE = "http://localhost:9000/api";
 
 // ==================== 类型定义 ====================
 
@@ -92,6 +92,37 @@ export async function setBaseVersion(
 export function getExportUrl(sessionId: string, version?: number): string {
     const params = version ? `?version=${version}` : "";
     return `${API_BASE}/sessions/${sessionId}/export${params}`;
+}
+
+/** 项目文件列表响应 */
+export interface FilesResponse {
+    success: boolean;
+    files: Array<{ path: string; type: string }>;
+}
+
+/** 文件内容响应 */
+export interface FileContentResponse {
+    content: string | null;
+    isBinary: boolean;
+    success: boolean;
+}
+
+/** 获取项目文件树 */
+export async function getFiles(sessionId: string): Promise<FilesResponse> {
+    const res = await fetch(`${API_BASE}/projects/${sessionId}/files`);
+    if (!res.ok) {
+        throw new Error(`获取文件列表失败: ${res.statusText}`);
+    }
+    return res.json();
+}
+
+/** 获取文件内容 */
+export async function getFileContent(sessionId: string, path: string): Promise<FileContentResponse> {
+    const res = await fetch(`${API_BASE}/projects/${sessionId}/content?path=${encodeURIComponent(path)}`);
+    if (!res.ok) {
+        throw new Error(`获取文件内容失败: ${res.statusText}`);
+    }
+    return res.json();
 }
 
 // ==================== WebContainer API ====================

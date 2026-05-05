@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock分支测试</title>
+</head>
+<body>
+    <h1>Mock分支测试页面</h1>
+    <button onclick="testSession()">测试会话创建</button>
+    <button onclick="testMessage()">测试消息发送</button>
+    <button onclick="testVersions()">测试版本获取</button>
+    <button onclick="testHtml()">测试HTML获取</button>
+
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc;"></div>
+
+    <script>
+        function log(message) {
+            console.log('[Test]', message);
+            document.getElementById('result').innerHTML += message + '<br>';
+        }
+
+        async function testSession() {
+            log('=== 测试会话创建 ===');
+            try {
+                const response = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                log(`响应状态: ${response.status}`);
+                const data = await response.json();
+                log(`响应数据: ${JSON.stringify(data)}`);
+            } catch (error) {
+                log(`错误: ${error.message}`);
+            }
+        }
+
+        async function testMessage() {
+            log('=== 测试消息发送 ===');
+            try {
+                const response = await fetch('/api/sessions/test-session/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: '创建计数器组件'
+                    })
+                });
+                log(`响应状态: ${response.status}`);
+                log(`Content-Type: ${response.headers.get('Content-Type')}`);
+
+                // 读取SSE流
+                if (response.body) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let eventCount = 0;
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        let currentEvent = '';
+                        for (const line of lines) {
+                            if (line.startsWith('event:')) {
+                                currentEvent = line.slice(7).trim();
+                                log(`收到事件: ${currentEvent}`);
+                            } else if (line.startsWith('data:')) {
+                                const dataStr = line.slice(5).trim();
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    eventCount++;
+                                    log(`事件${eventCount}: ${JSON.stringify(data).substring(0, 50)}...`);
+                                } catch (e) {
+                                    log(`数据解析失败`);
+                                }
+                                currentEvent = '';
+                            }
+                        }
+
+                        if (eventCount >= 3) break; // 只读取前3个事件
+                    }
+                }
+            } catch (error) {
+                log(`错误: ${error.message}`);
+            }
+        }
+
+        async function testVersions() {
+            log('=== 测试版本获取 ===');
+            try {
+                const response = await fetch('/api/sessions/test-session/versions', {
+                    method: 'GET'
+                });
+                log(`响应状态: ${response.status}`);
+                const data = await response.json();
+                log(`响应数据: ${JSON.stringify(data)}`);
+            } catch (error) {
+                log(`错误: ${error.message}`);
+            }
+        }
+
+        async function testHtml() {
+            log('=== 测试HTML获取 ===');
+            try {
+                const response = await fetch('/api/sessions/test-session/html', {
+                    method: 'GET'
+                });
+                log(`响应状态: ${response.status}`);
+                const data = await response.json();
+                log(`响应数据: ${JSON.stringify(data).substring(0, 100)}...`);
+            } catch (error) {
+                log(`错误: ${error.message}`);
+            }
+        }
+
+        // 检查mock状态
+        function checkMockStatus() {
+            log('=== 检查Mock状态 ===');
+            if (window.quickMock) {
+                log(`QuickMock状态: ${JSON.stringify(window.quickMock.status)}`);
+            } else {
+                log('QuickMock未找到');
+            }
+
+            if (window.simpleMock) {
+                log(`SimpleMock状态: ${JSON.stringify(window.simpleMock.status)}`);
+            } else {
+                log('SimpleMock未找到');
+            }
+
+            if (window.mockService) {
+                log(`MockService状态: ${JSON.stringify(window.mockService.status)}`);
+            } else {
+                log('MockService未找到');
+            }
+        }
+
+        // 页面加载时检查状态
+        window.addEventListener('load', checkMockStatus);
+    </script>
+</body>
+</html>

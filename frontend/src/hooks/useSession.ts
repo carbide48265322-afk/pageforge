@@ -26,25 +26,31 @@ export interface UseSessionReturn {
     switchBaseVersion: (version: number) => Promise<void>;
     /** 获取指定版本的 HTML */
     loadHtml: (version?: number) => Promise<{ html: string; version: number }>;
+    /** 设置会话 ID */
+    setSessionId: (id: string) => void;
 }
 
 /**
  * 会话管理 Hook
  * 管理会话的创建、版本列表、基准版本切换等
  */
-export function useSession(): UseSessionReturn {
-    const [sessionId, setSessionId] = useState<string | null>(null);
+export function useSession(initialSessionId?: string | null): UseSessionReturn {
+    const [sessionId, setSessionIdState] = useState<string | null>(initialSessionId || null);
     const [versions, setVersions] = useState<PageVersion[]>([]);
     const [currentBase, setCurrentBase] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(false);
+
+    /** 设置会话 ID */
+    const setSessionId = useCallback((id: string) => {
+        setSessionIdState(id);
+    }, []);
 
     /** 创建新会话 */
     const newSession = useCallback(async () => {
         setIsLoading(true);
         try {
             const res = await createSession();
-            setSessionId(res.session_id);
-            // 新会话清空版本列表
+            setSessionIdState(res.session_id);
             setVersions([]);
             setCurrentBase(0);
         } catch (error) {
@@ -95,7 +101,6 @@ export function useSession(): UseSessionReturn {
         [sessionId],
     );
 
-    // sessionId 变化时自动加载版本列表
     useEffect(() => {
         if (sessionId) {
             loadVersions();
@@ -111,5 +116,6 @@ export function useSession(): UseSessionReturn {
         loadVersions,
         switchBaseVersion,
         loadHtml,
+        setSessionId,
     };
 }

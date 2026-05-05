@@ -1,7 +1,8 @@
 import os
 from pathlib import Path
-from langchain_openai import ChatOpenAI
+from types import SimpleNamespace
 from dotenv import load_dotenv
+
 # 项目根目录（pageforge/）
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -19,36 +20,44 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 SKILLS_DIR = BASE_DIR / "skills"
 
 # 工具目录
-TOOLS_DIR = BASE_DIR / "backend" / "app" / "graph"
-
-# LLM 配置
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o")
+TOOLS_DIR = BASE_DIR / "backend" / "app" / "tools" / "v2"
 
 # 确保目录存在
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
-# 意图识别模型 — 轻量快速，不需要 thinking
+# ─── 模型名称配置（保留环境变量名向后兼容） ────────────────
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o")
 INTENT_MODEL_NAME = os.getenv("INTENT_MODEL_NAME", "gpt-4o-mini")
-
-# 执行模型 — 需要 thinking 能力（如 DeepSeek-R1、o1 等）
 EXECUTE_MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o")
 
-# 意图识别 LLM 客户端
-intent_llm = ChatOpenAI(
-    model=INTENT_MODEL_NAME,
-    api_key=OPENAI_API_KEY,
-    base_url=OPENAI_BASE_URL,
-    temperature=0.3,
-    max_tokens=1024,
-)
+# ─── 智能路由集成 ─────────────────────────────────────────
+# 新代码请使用：
+#   from app.core.model_router import get_llm_by_tier, get_model_for_node
+#
+# 以下向后兼容变量保持不变，内部委托给 model_router：
 
-# 执行 LLM 客户端 — 用于 ReAct 循环生成 HTML
-llm = ChatOpenAI(
-    model=EXECUTE_MODEL_NAME,
-    api_key=OPENAI_API_KEY,
-    base_url=OPENAI_BASE_URL,
-    temperature=0.7,
-    max_tokens=4096,
-)
+class _LazyLLM:
+    """延迟加载的 LLM 代理（兼容旧代码 `from app.config import llm`）"""
+
+    def __init__(self, tier: str):
+        self._tier = tier
+        self._instance = None
+
+    def _get(self):
+        if self._instance is None:
+            from app.core.model_router import get_llm_by_tier
+            self._instance = get_llm_by_tier(self._tier)
+        return self._instance
+
+    def invoke(self, *args, **kwargs):
+        return self._get().invoke(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._get(), name)
+
+
+# 向后兼容：code_gen.py 等旧代码 `from app.config import llm` 仍然有效
+llm = _LazyLLM("chat")
+intent_llm = _LazyLLM("lite")

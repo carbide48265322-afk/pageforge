@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock系统测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <h1>Mock系统测试页面</h1>
+
+    <div class="test-section">
+        <h2>1. 环境检测测试</h2>
+        <button class="btn" onclick="testEnvironment()">测试环境检测</button>
+        <div id="env-result" class="status"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Mock服务测试</h2>
+        <button class="btn" onclick="testMockService()">测试Mock服务</button>
+        <button class="btn" onclick="enableMock()">启用Mock模式</button>
+        <button class="btn" onclick="disableMock()">禁用Mock模式</button>
+        <div id="service-result" class="status"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. API拦截测试</h2>
+        <button class="btn" onclick="testApiInterception()">测试API拦截</button>
+        <div id="api-result" class="status"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. 场景测试</h2>
+        <button class="btn" onclick="testScenarios()">列出所有场景</button>
+        <div id="scenario-result" class="status"></div>
+    </div>
+
+    <script>
+        // 等待mock服务加载
+        function waitForMockService(callback, timeout = 5000) {
+            const start = Date.now();
+            const check = () => {
+                if (window.mockService) {
+                    callback(window.mockService);
+                } else if (Date.now() - start < timeout) {
+                    setTimeout(check, 100);
+                } else {
+                    document.getElementById('service-result').innerHTML =
+                        '<div class="error">Mock服务未找到，请检查是否正确加载</div>';
+                }
+            };
+            check();
+        }
+
+        function testEnvironment() {
+            const result = document.getElementById('env-result');
+
+            // 检查URL参数
+            const urlParams = new URLSearchParams(window.location.search);
+            const mockParam = urlParams.get('mock');
+
+            // 检查环境变量
+            let envMock = false;
+            try {
+                envMock = import.meta.env.VITE_MOCK_MODE === 'true';
+            } catch (e) {
+                // 在非Vite环境中
+            }
+
+            result.innerHTML = `
+                <div class="info">
+                    <strong>环境检测结果：</strong><br>
+                    URL参数 mock: ${mockParam || '未设置'}<br>
+                    环境变量 MOCK_MODE: ${envMock ? 'true' : 'false'}<br>
+                    当前URL: ${window.location.href}
+                </div>
+            `;
+        }
+
+        function testMockService() {
+            waitForMockService((service) => {
+                const result = document.getElementById('service-result');
+                const status = service.status;
+
+                result.innerHTML = `
+                    <div class="info">
+                        <strong>Mock服务状态：</strong><br>
+                        启用状态: ${status.enabled ? '已启用' : '已禁用'}<br>
+                        初始化状态: ${status.initialized ? '已初始化' : '未初始化'}<br>
+                        可用场景: ${status.scenarios.join(', ') || '无'}<br>
+                        场景数量: ${status.scenarios.length}
+                    </div>
+                `;
+            });
+        }
+
+        function enableMock() {
+            waitForMockService((service) => {
+                service.enable();
+                document.getElementById('service-result').innerHTML =
+                    '<div class="success">Mock模式已启用</div>';
+                setTimeout(testMockService, 100);
+            });
+        }
+
+        function disableMock() {
+            waitForMockService((service) => {
+                service.disable();
+                document.getElementById('service-result').innerHTML =
+                    '<div class="success">Mock模式已禁用</div>';
+                setTimeout(testMockService, 100);
+            });
+        }
+
+        function testApiInterception() {
+            const result = document.getElementById('api-result');
+
+            // 测试fetch拦截
+            fetch('/api/sessions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.json().then(data => {
+                        result.innerHTML = `
+                            <div class="success">
+                                <strong>API拦截测试成功：</strong><br>
+                                状态: ${response.status}<br>
+                                响应: ${JSON.stringify(data)}
+                            </div>
+                        `;
+                    });
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            })
+            .catch(error => {
+                result.innerHTML = `
+                    <div class="error">
+                        <strong>API拦截测试失败：</strong><br>
+                        错误: ${error.message}
+                    </div>
+                `;
+            });
+        }
+
+        function testScenarios() {
+            waitForMockService((service) => {
+                const result = document.getElementById('scenario-result');
+                const scenarios = service.scenarios;
+
+                if (scenarios && scenarios.length > 0) {
+                    let html = '<div class="info"><strong>可用场景：</strong><br>';
+                    scenarios.forEach((scenario, index) => {
+                        html += `
+                            <div style="margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
+                                <strong>${index + 1}. ${scenario.name}</strong> (${scenario.id})<br>
+                                <small>输入: "${scenario.userInput}"</small><br>
+                                <small>事件数: ${scenario.events.length}</small>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    result.innerHTML = html;
+                } else {
+                    result.innerHTML = '<div class="error">没有找到场景</div>';
+                }
+            });
+        }
+
+        // 页面加载时自动测试环境
+        window.addEventListener('load', () => {
+            testEnvironment();
+
+            // 检查是否应该自动启用mock
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('mock') === 'true') {
+                enableMock();
+            }
+        });
+    </script>
+</body>
+</html>

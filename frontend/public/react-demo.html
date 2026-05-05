@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -27,7 +28,7 @@
         .header h1 {
             font-size: 3rem;
             margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .header p {
@@ -36,7 +37,7 @@
         }
 
         .demo-section {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
             border-radius: 15px;
             padding: 30px;
             margin-bottom: 30px;
@@ -49,7 +50,7 @@
         }
 
         .code-block {
-            background: rgba(0,0,0,0.3);
+            background: rgba(0, 0, 0, 0.3);
             border-radius: 8px;
             padding: 20px;
             margin: 15px 0;
@@ -71,7 +72,7 @@
         }
 
         .feature {
-            background: rgba(255,255,255,0.15);
+            background: rgba(255, 255, 255, 0.15);
             border-radius: 10px;
             padding: 25px;
             text-align: center;
@@ -125,7 +126,7 @@
         }
 
         .comparison-table {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
             border-radius: 10px;
             padding: 20px;
         }
@@ -143,7 +144,7 @@
 
         .comparison-table li {
             padding: 10px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.2);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .comparison-table li:last-child {
@@ -151,7 +152,7 @@
         }
 
         .highlight {
-            background: rgba(255,215,0,0.2);
+            background: rgba(255, 215, 0, 0.2);
             padding: 2px 6px;
             border-radius: 4px;
             color: #ffd700;
@@ -163,8 +164,8 @@
         }
 
         .cta button {
-            background: rgba(255,255,255,0.2);
-            border: 2px solid rgba(255,255,255,0.3);
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
             border-radius: 25px;
             padding: 15px 30px;
             color: white;
@@ -174,7 +175,7 @@
         }
 
         .cta button:hover {
-            background: rgba(255,255,255,0.3);
+            background: rgba(255, 255, 255, 0.3);
             transform: translateY(-2px);
         }
 
@@ -194,6 +195,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
@@ -236,65 +238,65 @@
             <h3>输入: HTML + JavaScript</h3>
             <div class="code-block">
                 <pre>&lt;div class="counter"&gt;
-    &lt;h1&gt;计数器&lt;/h1&gt;
-    &lt;div id="count" class="count"&gt;0&lt;/div&gt;
-    &lt;div class="buttons"&gt;
-        &lt;button onclick="changeCount(-1)"&gt;-&lt;/button&gt;
-        &lt;button onclick="resetCount()"&gt;重置&lt;/button&gt;
-        &lt;button onclick="changeCount(1)"&gt;+&lt;/button&gt;
-    &lt;/div&gt;
-&lt;/div&gt;
+                    &lt;h1&gt;计数器&lt;/h1&gt;
+                    &lt;div id="count" class="count"&gt;0&lt;/div&gt;
+                    &lt;div class="buttons"&gt;
+                    &lt;button onclick="changeCount(-1)"&gt;-&lt;/button&gt;
+                    &lt;button onclick="resetCount()"&gt;重置&lt;/button&gt;
+                    &lt;button onclick="changeCount(1)"&gt;+&lt;/button&gt;
+                    &lt;/div&gt;
+                    &lt;/div&gt;
 
-&lt;script&gt;
-let count = parseInt(localStorage.getItem('counter') || '0');
+                    &lt;script&gt;
+                    let count = parseInt(localStorage.getItem('counter') || '0');
 
-function changeCount(delta) {
-    count += delta;
-    localStorage.setItem('counter', count.toString());
-    updateDisplay();
-}
+                    function changeCount(delta) {
+                    count += delta;
+                    localStorage.setItem('counter', count.toString());
+                    updateDisplay();
+                    }
 
-function resetCount() {
-    count = 0;
-    localStorage.setItem('counter', '0');
-    updateDisplay();
-}
-&lt;/script&gt;</pre>
+                    function resetCount() {
+                    count = 0;
+                    localStorage.setItem('counter', '0');
+                    updateDisplay();
+                    }
+                    &lt;/script&gt;</pre>
             </div>
 
             <h3>输出: React 组件</h3>
             <div class="code-block">
                 <pre>import React, { useState, useEffect } from 'react'
 
-function App() {
-  const [count, setCount] = useState(() => {
-    return parseInt(localStorage.getItem('counter') || '0');
-  })
+                    function App() {
+                    const [count, setCount] = useState(() => {
+                    return parseInt(localStorage.getItem('counter') || '0');
+                    })
 
-  const changeCount = (delta) => {
-    setCount(prevCount => prevCount + delta);
-  }
+                    const changeCount = (delta) => {
+                    setCount(prevCount => prevCount + delta);
+                    }
 
-  const resetCount = () => {
-    setCount(0);
-  }
+                    const resetCount = () => {
+                    setCount(0);
+                    }
 
-  useEffect(() => {
-    localStorage.setItem('counter', count.toString());
-  }, [count])
+                    useEffect(() => {
+                    localStorage.setItem('counter', count.toString());
+                    }, [count])
 
-  return (
-    &lt;div className="counter"&gt;
-      &lt;h1&gt;计数器&lt;/h1&gt;
-      &lt;div className="count"&gt;{count}&lt;/div&gt;
-      &lt;div className="buttons"&gt;
-        &lt;button onClick={() =&gt; changeCount(-1)}&gt;-&lt;/button&gt;
-        &lt;button onClick={resetCount}&gt;重置&lt;/button&gt;
-        &lt;button onClick={() =&gt; changeCount(1)}&gt;+&lt;/button&gt;
-      &lt;/div&gt;
-    &lt;/div&gt;
-  )
-}</pre>
+                    return (
+                    &lt;div className="counter"&gt;
+                    &lt;h1&gt;计数器&lt;/h1&gt;
+                    &lt;div className="count"&gt;{count}&lt;/div&gt;
+                    &lt;div className="buttons"&gt;
+                    &lt;button onClick={() =&gt; changeCount(-1)}&gt;-&lt;/button&gt;
+                    &lt;button onClick={resetCount}&gt;重置&lt;/button&gt;
+                    &lt;button onClick={() =&gt; changeCount(1)}&gt;+&lt;/button&gt;
+                    &lt;/div&gt;
+                    &lt;/div&gt;
+                    )
+                    }</pre>
             </div>
         </div>
 
@@ -360,16 +362,16 @@ function App() {
             <h2>🚀 使用方式</h2>
             <div class="code-block">
                 <pre># 1. 创建 React 项目
-POST /api/webcontainer/projects?session_id=abc123&version=1
+                    POST /api/webcontainer/projects?session_id=abc123&version=1
 
-# 2. 安装依赖
-POST /api/webcontainer/projects/abc123/1/install
+                    # 2. 安装依赖
+                    POST /api/webcontainer/projects/abc123/1/install
 
-# 3. 启动开发服务器
-POST /api/webcontainer/projects/abc123/1/start
+                    # 3. 启动开发服务器
+                    POST /api/webcontainer/projects/abc123/1/start
 
-# 4. 访问应用
-http://localhost:6000</pre>
+                    # 4. 访问应用
+                    http://localhost:6001</pre>
             </div>
         </div>
 
@@ -387,16 +389,17 @@ http://localhost:6000</pre>
 
         // 添加一些交互效果
         document.querySelectorAll('.feature').forEach(feature => {
-            feature.addEventListener('mouseenter', function() {
+            feature.addEventListener('mouseenter', function () {
                 this.style.transform = 'translateY(-5px)';
                 this.style.boxShadow = '0 10px 30px rgba(0,0,0,0.2)';
             });
 
-            feature.addEventListener('mouseleave', function() {
+            feature.addEventListener('mouseleave', function () {
                 this.style.transform = 'translateY(0)';
                 this.style.boxShadow = 'none';
             });
         });
     </script>
 </body>
+
 </html>

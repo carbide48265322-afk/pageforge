@@ -1,0 +1,102 @@
+{
+  "minimal": {
+    "name": "minimal",
+    "description": "极简风格 — 黑白灰配色，Inter 字体，适合作品集和创意机构",
+    "colors": {
+      "primary": "#171717",
+      "secondary": "#52525b",
+      "background": "#ffffff",
+      "accent": "#6366f1"
+    },
+    "typography": {
+      "font_family": "'Inter', system-ui, sans-serif",
+      "heading_weight": "600",
+      "body_size": "14px"
+    },
+    "border_radius": "0.375rem",
+    "shadows": {
+      "sm": "0 1px 2px 0 rgb(0 0 0 / 0.05)"
+    },
+    "anti_patterns": [
+      "不要用紫渐变",
+      "不要用 Inter 之外的通用字体",
+      "避免千篇一律的卡片设计"
+    ],
+    "source": "fallback/minimal"
+  },
+  "dark": {
+    "name": "dark",
+    "description": "暗色风格 — 深色背景，适合夜间模式和技术产品",
+    "colors": {
+      "primary": "#e2e8f0",
+      "secondary": "#94a3b8",
+      "background": "#0a0a0a",
+      "accent": "#818cf8"
+    },
+    "typography": {
+      "font_family": "'Inter', system-ui, sans-serif",
+      "heading_weight": "700",
+      "body_size": "14px"
+    },
+    "border_radius": "0.5rem",
+    "shadows": {
+      "sm": "0 1px 3px 0 rgb(255 255 255 / 0.1)"
+    },
+    "anti_patterns": [
+      "不要用纯白文字",
+      "避免使用蓝色系配色",
+      "避免过亮的背景"
+    ],
+    "source": "fallback/dark"
+  },
+  "glassmorphism": {
+    "name": "glassmorphism",
+    "description": "玻璃拟态 — 透明模糊效果，适合现代 SaaS 和创意产品",
+    "colors": {
+      "primary": "#6366f1",
+      "secondary": "#8b5cf6",
+      "background": "rgba(255,255,255,0.1)",
+      "accent": "#f59e0b"
+    },
+    "typography": {
+      "font_family": "'Inter', system-ui, sans-serif",
+      "heading_weight": "600",
+      "body_size": "14px"
+    },
+    "border_radius": "1rem",
+    "shadows": {
+      "sm": "0 8px 32px 0 rgb(31 38 135 / 0.37)"
+    },
+    "anti_patterns": [
+      "不要用实色背景",
+      "避免无透明度的元素",
+      "不要过度使用模糊效果"
+    ],
+    "source": "fallback/glassmorphism"
+  },
+  "vibrant": {
+    "name": "vibrant",
+    "description": "鲜艳风格 — 暖色调配色，适合娱乐和消费类产品",
+    "colors": {
+      "primary": "#f59e0b",
+      "secondary": "#f97316",
+      "background": "#fffbeb",
+      "accent": "#ef4444"
+    },
+    "typography": {
+      "font_family": "'Inter', system-ui, sans-serif",
+      "heading_weight": "700",
+      "body_size": "14px"
+    },
+    "border_radius": "0.75rem",
+    "shadows": {
+      "sm": "0 4px 6px -1px rgb(245 158 11 / 0.3)"
+    },
+    "anti_patterns": [
+      "不要用灰色系",
+      "避免过度设计",
+      "不要使用小号字体"
+    ],
+    "source": "fallback/vibrant"
+  }
+}

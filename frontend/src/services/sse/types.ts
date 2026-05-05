@@ -95,11 +95,31 @@ export interface StyleConfig {
 
 // ========== RenderBlock（用于 useSSEv2 状态聚合）==========
 
-export type RenderBlock = ThinkingBlock | PlanBlock | ToolCallBlock;
+export type RenderBlock = ThinkingBlock | PlanBlock | ToolCallBlock | TextBlock;
 
 export interface SSEStatus {
   status: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
   error?: string;
+}
+
+// ========== Text 相关 ==========
+
+export interface TextBlock {
+  type: 'text';
+  id: string;
+  content: string;
+  status: 'streaming' | 'complete';
+  startedAt: number;
+  completedAt?: number;
+}
+
+// ========== Command Output 相关 ==========
+
+export interface CommandOutput {
+  type: 'command_output';
+  id: string;
+  output: string;
+  timestamp: number;
 }
 
 // ========== Preview 相关 ==========

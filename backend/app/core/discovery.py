@@ -15,15 +15,38 @@ class AutoDiscover:
         if not tools_dir.exists():
             return
 
-        for py_file in tools_dir.glob("*.py"):
-            if py_file.name.startswith("_"):
-                continue
+        # 尝试作为包导入，支持相对导入
+        try:
+            import sys
+            sys.path.insert(0, str(tools_dir.parent))
 
-            try:
-                module = self._load_module(py_file)
-                self._scan_module_for_tools(module)
-            except Exception as e:
-                print(f"Warning: Failed to load module {py_file}: {e}")
+            for py_file in tools_dir.glob("*.py"):
+                if py_file.name.startswith("_"):
+                    continue
+
+                try:
+                    # 使用包相对导入
+                    module_name = f"{tools_dir.name}.{py_file.stem}"
+                    module = __import__(module_name, fromlist=[''])
+                    self._scan_module_for_tools(module)
+                except Exception as e:
+                    # 如果包导入失败，回退到独立模块加载
+                    try:
+                        module = self._load_module(py_file)
+                        self._scan_module_for_tools(module)
+                    except Exception as e2:
+                        print(f"Warning: Failed to load module {py_file}: {e2}")
+        except Exception as e:
+            print(f"Warning: Failed to setup package import for {tools_dir}: {e}")
+            # 回退到原来的方法
+            for py_file in tools_dir.glob("*.py"):
+                if py_file.name.startswith("_"):
+                    continue
+                try:
+                    module = self._load_module(py_file)
+                    self._scan_module_for_tools(module)
+                except Exception as e:
+                    print(f"Warning: Failed to load module {py_file}: {e}")
 
     def discover_skills(self, skills_dir: Path) -> None:
         """发现并注册技能"""

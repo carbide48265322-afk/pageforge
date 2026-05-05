@@ -21,14 +21,5 @@ export type {
   PreviewSource,
 } from './types';
 
-// Handler 导出（供高级用法）
-export { thinkingHandler } from './handlers/thinkingHandler';
-export { planHandler } from './handlers/planHandler';
-export { toolCallHandler } from './handlers/toolCallHandler';
-export { fileEventHandler } from './handlers/fileEventHandler';
-export { statusHandler } from './handlers/statusHandler';
-export { intentHandler } from './handlers/intentHandler';
-export { styleHandler } from './handlers/styleHandler';
-
 // 工具函数导出
 export { parseSSELine, parseSSEMessage } from './utils/parseEvent';

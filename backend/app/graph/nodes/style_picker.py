@@ -25,11 +25,6 @@ from typing import Optional
 import yaml
 from langgraph.config import get_stream_writer
 
-from app.graph.nodes.intent_router import (
-    _FALLBACK_STYLES,
-    get_fallback_style_config,
-)
-
 logger = logging.getLogger(__name__)
 
 # ─── Meooo skill 路径 ────────────────────────────────────
@@ -40,6 +35,17 @@ _MEOOO_DIR = _PROJECT_ROOT / "skills" / "【Meoo】高级UI_UX 设计智能系�
 _MEOOO_DB = _MEOOO_DIR / "database.yaml"
 _MEOOO_STYLES_DIR = _MEOOO_DIR / "styles"
 _FRONTEND_DESIGN_SKILL = _PROJECT_ROOT / "skills" / "frontend-design" / "SKILL.md"
+
+# ─── Fallback 风格配置（与 intent_router 共享同一份 JSON）──
+import json as _json
+_FALLBACK_STYLES_PATH = _PROJECT_ROOT / "backend" / "app" / "prompts" / "fallback_styles.json"
+with open(_FALLBACK_STYLES_PATH, "r", encoding="utf-8") as _f:
+    _FALLBACK_STYLES: dict = _json.load(_f)
+
+
+def get_fallback_style_config(style: str) -> dict:
+    """获取内置降级风格配置（当 Meooo skill 不可用时使用）"""
+    return _FALLBACK_STYLES.get(style, _FALLBACK_STYLES["minimal"])
 
 
 # ========== 主节点函数 ==========
@@ -303,29 +309,48 @@ def _extract_tokens_from_body(body: str) -> dict:
                 value = value.strip().strip("`")
 
                 if current_section == "colors":
-                    # Meooo 风格使用 Tailwind class 而非 hex 值
-                    # 例: Primary BG: `bg-white`, Primary Text: `text-black`
+                    # Meooo 风格使用 Tailwind class 描述颜色
+                    # 通用 key → field 映射，覆盖所有 140 个风格文件的 key 变体
+                    # key 已在第 306 行转为小写
+                    field = None
                     if "primary" in key and "bg" in key:
-                        result["colors"].setdefault("bg_primary", value)
+                        field = "bg_primary"
                     elif "primary" in key and "text" in key:
-                        result["colors"].setdefault("text_primary", value)
+                        field = "text_primary"
                     elif "primary" in key and "button" in key:
-                        result["colors"].setdefault("button_primary", value)
+                        field = "button_primary"
                     elif "secondary" in key and "bg" in key:
-                        result["colors"].setdefault("bg_secondary", value)
+                        field = "bg_secondary"
                     elif "secondary" in key and "text" in key:
-                        result["colors"].setdefault("text_secondary", value)
+                        field = "text_secondary"
                     elif "dark" in key and "bg" in key:
-                        result["colors"].setdefault("bg_dark", value)
+                        field = "bg_dark"
                     elif "muted" in key:
-                        result["colors"].setdefault("text_muted", value)
-                    elif "border" in key and "color" not in key:
-                        result["colors"].setdefault("border", value)
+                        field = "text_muted"
+                    elif "border" in key:
+                        field = "border"
+                    elif "accent" in key and "hover" in key:
+                        field = "accent_hover"
                     elif "accent" in key:
-                        result["colors"].setdefault("accent", value)
+                        field = "accent"
+                    elif "elevated" in key and "bg" in key:
+                        field = "bg_elevated"
+                    elif "warm" in key and "bg" in key:
+                        field = "bg_warm"
+                    elif "surface" in key:
+                        field = "surface"
+                    elif "primary" in key:
+                        field = "primary"
+                    elif "secondary" in key:
+                        field = "secondary"
+                    if field:
+                        result["colors"].setdefault(field, value)
+                    else:
+                        # 其他未预见的 key 以原始 key 存入
+                        result["colors"].setdefault(key.replace(" ", "_"), value)
 
                 elif current_section == "typography":
-                    if "font family" in key or "font_family" in key:
+                    if "font" in key and ("family" in key or "font_family" in key.replace(" ", "_")):
                         result["typography"]["font_family"] = value
                     elif "heading" in key and "weight" not in key:
                         result["typography"]["heading_class"] = value
@@ -342,10 +367,12 @@ def _extract_tokens_from_body(body: str) -> dict:
                     result["shadows"].setdefault("sm", value)
 
     # 收集 anti-patterns（在 body 其他位置）
+    # 匹配 "## Forbidden Patterns" 或 "## Anti-patterns" 标题
     in_forbidden = False
     for line in lines:
         stripped = line.strip()
-        if "forbidden" in stripped.lower() or "anti-pattern" in stripped.lower() or "anti_pattern" in stripped.lower():
+        # 精确匹配 ## 级别的 Forbidden/Anti-pattern 标题
+        if stripped.startswith("## ") and ("forbidden" in stripped.lower() or "anti-pattern" in stripped.lower()):
             in_forbidden = True
             continue
         if in_forbidden:
@@ -354,6 +381,10 @@ def _extract_tokens_from_body(body: str) -> dict:
                 continue
             if stripped.startswith("- "):
                 result["anti_patterns"].append(stripped[2:].strip())
+            elif stripped.startswith("Pattern:"):
+                # 正则模式形式的禁止项，如 "Pattern: `^bg-gradient`"
+                pattern_val = stripped[len("Pattern:"):].strip().strip("`")
+                result["anti_patterns"].append(f"禁止匹配模式: {pattern_val}")
 
     result["raw_text"] = "\n".join(token_lines[:20])
     return result

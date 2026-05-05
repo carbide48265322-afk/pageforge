@@ -10,6 +10,7 @@ import type {
     TextBlock,
     StyleConfig,
     StatusEvent,
+    CommandOutput,
 } from "../services/sse/types";
 
 // ========== 类型定义（保持向后兼容）==========
@@ -130,11 +131,10 @@ export interface UseSSEv2Return {
 const API_BASE = "http://localhost:9000/api";
 
 /**
- * SSE v2 Hook - 使用三层架构（Dispatcher → Handlers → State Aggregation）
+ * SSE v2 Hook - 两层架构（Dispatcher → State Aggregation）
  *
- * 改造后只做状态聚合，事件处理逻辑委托给 SseEventDispatcher 和 handlers/
- * 新增事件类型只需在 handlers/ 目录添加新文件 + HANDLER_MAP 注册一行
- * 本文件不需要修改
+ * Dispatcher 负责事件分发，本文件负责状态聚合和 UI 数据转换
+ * 新增事件类型只需在本文件添加新的 subscribe 回调
  */
 
 export function useSSEv2(sessionId: string | null): UseSSEv2Return {

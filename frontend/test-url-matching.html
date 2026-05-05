@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL匹配测试</title>
+</head>
+<body>
+    <h1>URL匹配测试</h1>
+
+    <div>
+        <button onclick="testCreateSession()">测试创建会话</button>
+        <button onclick="testSendMessage()">测试发送消息</button>
+        <button onclick="testBoth()">测试两个都调用</button>
+    </div>
+
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; max-height: 400px; overflow-y: auto;"></div>
+
+    <script>
+        function log(message) {
+            console.log('[URL Test]', message);
+            document.getElementById('result').innerHTML += message + '<br>';
+        }
+
+        async function testCreateSession() {
+            log('=== 测试创建会话 ===');
+            try {
+                const response = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                log(`URL: /api/sessions`);
+                log(`方法: POST`);
+                log(`状态: ${response.status}`);
+                const data = await response.json();
+                log(`响应: ${JSON.stringify(data)}`);
+            } catch (error) {
+                log(`错误: ${error.message}`);
+            }
+        }
+
+        async function testSendMessage() {
+            log('=== 测试发送消息 ===');
+            try {
+                const response = await fetch('/api/sessions/test-session-123/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: '创建计数器组件'
+                    })
+                });
+                log(`URL: /api/sessions/test-session-123/messages`);
+                log(`方法: POST`);
+                log(`状态: ${response.status}`);
+                log(`Content-Type: ${response.headers.get('Content-Type')}`);
+
+                // 读取SSE流的前几个事件
+                if (response.body) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let eventCount = 0;
+
+                    while (eventCount < 3) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        let currentEvent = '';
+                        for (const line of lines) {
+                            if (line.startsWith('event:')) {
+                                currentEvent = line.slice(7).trim();
+                                log(`事件: ${currentEvent}`);
+                                eventCount++;
+                            } else if (line.startsWith('data:')) {
+                                const dataStr = line.slice(5).trim();
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    log(`数据: ${JSON.stringify(data).substring(0, 50)}...`);
+                                } catch (e) {
+                                    log(`数据解析失败`);
+                                }
+                                currentEvent = '';
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                log(`错误: ${error.message}`);
+            }
+        }
+
+        async function testBoth() {
+            log('=== 连续测试两个请求 ===');
+
+            // 先创建会话
+            await testCreateSession();
+
+            // 等待一下
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // 再发送消息
+            await testSendMessage();
+        }
+
+        // 检查mock状态
+        function checkMockStatus() {
+            log('=== 检查Mock状态 ===');
+            if (window.quickMock) {
+                log(`QuickMock启用: ${window.quickMock.status.enabled}`);
+            }
+            if (window.simpleMock) {
+                log(`SimpleMock启用: ${window.simpleMock.status.enabled}`);
+            }
+            if (window.mockService) {
+                log(`MockService启用: ${window.mockService.status.enabled}`);
+            }
+        }
+
+        window.addEventListener('load', checkMockStatus);
+    </script>
+</body>
+</html>

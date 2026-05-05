@@ -4,21 +4,21 @@
  */
 
 export interface WebContainerFile {
-  path: string;
-  content: string;
+    path: string;
+    content: string;
 }
 
 export interface WebContainerFolder {
-  path: string;
-  isDir: true;
+    path: string;
+    isDir: true;
 }
 
 export type WebContainerItem = WebContainerFile | WebContainerFolder;
 
 export interface WebContainerProject {
-  files: WebContainerFile[];
-  dependencies?: Record<string, string>;
-  scripts?: Record<string, string>;
+    files: WebContainerFile[];
+    dependencies?: Record<string, string>;
+    scripts?: Record<string, string>;
 }
 
 /**
@@ -26,193 +26,204 @@ export interface WebContainerProject {
  * 使用 StackBlitz WebContainer API 在浏览器中运行项目
  */
 export class WebContainerManager {
-  private static instance: WebContainerManager;
-  private container: any = null;
-  private isReady = false;
-  private iframe: HTMLIFrameElement | null = null;
+    private static instance: WebContainerManager;
+    private container: any = null;
+    private isReady = false;
+    private iframe: HTMLIFrameElement | null = null;
 
-  private constructor() {}
+    private constructor() {}
 
-  static getInstance(): WebContainerManager {
-    if (!WebContainerManager.instance) {
-      WebContainerManager.instance = new WebContainerManager();
-    }
-    return WebContainerManager.instance;
-  }
-
-  /**
-   * 初始化 WebContainer
-   */
-  async initialize(containerElement: HTMLElement): Promise<void> {
-    if (this.isReady) return;
-
-    try {
-      // 动态导入 WebContainer
-      // TODO: 安装 @webcontainer/api 包后取消注释
-      // const { WebContainer } = await import('@webcontainer/api');
-
-      // 创建 iframe 容器
-      this.iframe = document.createElement('iframe');
-      this.iframe.className = 'w-full h-full border-0';
-      this.iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
-      containerElement.appendChild(this.iframe);
-
-      // 启动 WebContainer
-      // TODO: 实现实际的 WebContainer 启动逻辑
-      this.container = null; // 临时模拟
-      this.isReady = true;
-
-      console.log('WebContainer 初始化成功');
-    } catch (error) {
-      console.error('WebContainer 初始化失败:', error);
-      throw new Error('WebContainer 初始化失败，请检查网络连接');
-    }
-  }
-
-  /**
-   * 创建项目文件结构
-   */
-  async createProject(project: WebContainerProject): Promise<void> {
-    if (!this.container || !this.isReady) {
-      throw new Error('WebContainer 未初始化');
+    static getInstance(): WebContainerManager {
+        if (!WebContainerManager.instance) {
+            WebContainerManager.instance = new WebContainerManager();
+        }
+        return WebContainerManager.instance;
     }
 
-    try {
-      // 写入文件
-      for (const file of project.files) {
-        // 确保目录存在
-        const dirPath = file.path.split('/').slice(0, -1).join('/');
-        if (dirPath) {
-          await this.container.fs.mkdir(dirPath, { recursive: true });
+    /**
+     * 初始化 WebContainer
+     */
+    async initialize(containerElement: HTMLElement): Promise<void> {
+        if (this.isReady) return;
+
+        try {
+            // 动态导入 WebContainer
+            // TODO: 安装 @webcontainer/api 包后取消注释
+            // const { WebContainer } = await import('@webcontainer/api');
+
+            // 创建 iframe 容器
+            this.iframe = document.createElement("iframe");
+            this.iframe.className = "w-full h-full border-0";
+            this.iframe.setAttribute(
+                "sandbox",
+                "allow-scripts allow-same-origin",
+            );
+            containerElement.appendChild(this.iframe);
+
+            // 启动 WebContainer
+            // TODO: 实现实际的 WebContainer 启动逻辑
+            this.container = null; // 临时模拟
+            this.isReady = true;
+
+            console.log("WebContainer 初始化成功");
+        } catch (error) {
+            console.error("WebContainer 初始化失败:", error);
+            throw new Error("WebContainer 初始化失败，请检查网络连接");
+        }
+    }
+
+    /**
+     * 创建项目文件结构
+     */
+    async createProject(project: WebContainerProject): Promise<void> {
+        if (!this.container || !this.isReady) {
+            throw new Error("WebContainer 未初始化");
         }
 
-        // 写入文件内容
-        await this.container.fs.writeFile(file.path, file.content);
-      }
+        try {
+            // 写入文件
+            for (const file of project.files) {
+                // 确保目录存在
+                const dirPath = file.path.split("/").slice(0, -1).join("/");
+                if (dirPath) {
+                    await this.container.fs.mkdir(dirPath, { recursive: true });
+                }
 
-      // 创建 package.json
-      if (project.dependencies || project.scripts) {
-        const packageJson = {
-          name: 'generated-project',
-          version: '1.0.0',
-          type: 'module',
-          scripts: project.scripts || {
-            dev: 'vite',
-            build: 'vite build',
-            preview: 'vite preview'
-          },
-          dependencies: project.dependencies || {},
-          devDependencies: {
-            'vite': '^5.0.0'
-          }
-        };
+                // 写入文件内容
+                await this.container.fs.writeFile(file.path, file.content);
+            }
 
-        await this.container.fs.writeFile('/package.json', JSON.stringify(packageJson, null, 2));
-      }
+            // 创建 package.json
+            if (project.dependencies || project.scripts) {
+                const packageJson = {
+                    name: "generated-project",
+                    version: "1.0.0",
+                    type: "module",
+                    scripts: project.scripts || {
+                        dev: "vite",
+                        build: "vite build",
+                        preview: "vite preview",
+                    },
+                    dependencies: project.dependencies || {},
+                    devDependencies: {
+                        vite: "^5.0.0",
+                    },
+                };
 
-      console.log('项目文件创建完成');
-    } catch (error) {
-      console.error('创建项目失败:', error);
-      throw error;
-    }
-  }
+                await this.container.fs.writeFile(
+                    "/package.json",
+                    JSON.stringify(packageJson, null, 2),
+                );
+            }
 
-  /**
-   * 安装依赖
-   */
-  async installDependencies(): Promise<void> {
-    if (!this.container || !this.isReady) {
-      throw new Error('WebContainer 未初始化');
-    }
-
-    try {
-      // 安装依赖
-      const installProcess = await this.container.spawn('npm', ['install']);
-
-      // 监听安装输出
-      installProcess.output.pipeTo(
-        new WritableStream({
-          write(chunk) {
-            console.log('npm install:', chunk);
-          }
-        })
-      );
-
-      // 等待安装完成
-      const installExitCode = await installProcess.exit;
-      if (installExitCode !== 0) {
-        throw new Error('依赖安装失败');
-      }
-
-      console.log('依赖安装完成');
-    } catch (error) {
-      console.error('安装依赖失败:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * 启动开发服务器
-   */
-  async startDevServer(): Promise<string> {
-    if (!this.container || !this.isReady) {
-      throw new Error('WebContainer 未初始化');
+            console.log("项目文件创建完成");
+        } catch (error) {
+            console.error("创建项目失败:", error);
+            throw error;
+        }
     }
 
-    try {
-      // 启动开发服务器
-      const devProcess = await this.container.spawn('npm', ['run', 'dev']);
+    /**
+     * 安装依赖
+     */
+    async installDependencies(): Promise<void> {
+        if (!this.container || !this.isReady) {
+            throw new Error("WebContainer 未初始化");
+        }
 
-      // 监听服务器输出
-      devProcess.output.pipeTo(
-        new WritableStream({
-          write(chunk) {
-            console.log('dev server:', chunk);
-          }
-        })
-      );
+        try {
+            // 安装依赖
+            const installProcess = await this.container.spawn("npm", [
+                "install",
+            ]);
 
-      // 等待服务器准备就绪
-      const serverUrl = await this.container.port.waitForPort(6000);
+            // 监听安装输出
+            installProcess.output.pipeTo(
+                new WritableStream({
+                    write(chunk) {
+                        console.log("npm install:", chunk);
+                    },
+                }),
+            );
 
-      // 将服务器连接到 iframe
-      if (this.iframe) {
-        await this.container.mount(this.iframe);
-      }
+            // 等待安装完成
+            const installExitCode = await installProcess.exit;
+            if (installExitCode !== 0) {
+                throw new Error("依赖安装失败");
+            }
 
-      console.log('开发服务器启动成功:', serverUrl);
-      return serverUrl;
-    } catch (error) {
-      console.error('启动开发服务器失败:', error);
-      throw error;
+            console.log("依赖安装完成");
+        } catch (error) {
+            console.error("安装依赖失败:", error);
+            throw error;
+        }
     }
-  }
 
-  /**
-   * 从 HTML 字符串创建项目
-   */
-  createProjectFromHtml(html: string): WebContainerProject {
-    // 解析 HTML，提取 CSS 和 JS
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
+    /**
+     * 启动开发服务器
+     */
+    async startDevServer(): Promise<string> {
+        if (!this.container || !this.isReady) {
+            throw new Error("WebContainer 未初始化");
+        }
 
-    // 提取样式
-    const styles = Array.from(doc.querySelectorAll('style'))
-      .map(style => style.textContent || '')
-      .join('\n');
+        try {
+            // 启动开发服务器
+            const devProcess = await this.container.spawn("npm", [
+                "run",
+                "dev",
+            ]);
 
-    // 提取脚本
-    const scripts = Array.from(doc.querySelectorAll('script'))
-      .map(script => script.textContent || '')
-      .join('\n');
+            // 监听服务器输出
+            devProcess.output.pipeTo(
+                new WritableStream({
+                    write(chunk) {
+                        console.log("dev server:", chunk);
+                    },
+                }),
+            );
 
-    // 移除样式和脚本，只保留结构
-    doc.querySelectorAll('style, script').forEach(el => el.remove());
+            // 等待服务器准备就绪
+            const serverUrl = await this.container.port.waitForPort(6001);
 
-    const files: WebContainerFile[] = [
-      {
-        path: '/index.html',
-        content: `<!DOCTYPE html>
+            // 将服务器连接到 iframe
+            if (this.iframe) {
+                await this.container.mount(this.iframe);
+            }
+
+            console.log("开发服务器启动成功:", serverUrl);
+            return serverUrl;
+        } catch (error) {
+            console.error("启动开发服务器失败:", error);
+            throw error;
+        }
+    }
+
+    /**
+     * 从 HTML 字符串创建项目
+     */
+    createProjectFromHtml(html: string): WebContainerProject {
+        // 解析 HTML，提取 CSS 和 JS
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, "text/html");
+
+        // 提取样式
+        const styles = Array.from(doc.querySelectorAll("style"))
+            .map((style) => style.textContent || "")
+            .join("\n");
+
+        // 提取脚本
+        const scripts = Array.from(doc.querySelectorAll("script"))
+            .map((script) => script.textContent || "")
+            .join("\n");
+
+        // 移除样式和脚本，只保留结构
+        doc.querySelectorAll("style, script").forEach((el) => el.remove());
+
+        const files: WebContainerFile[] = [
+            {
+                path: "/index.html",
+                content: `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -224,65 +235,69 @@ export class WebContainerManager {
     ${doc.body.innerHTML}
     <script type="module" src="/src/main.js"></script>
 </body>
-</html>`
-      }
-    ];
+</html>`,
+            },
+        ];
 
-    // 如果有样式，创建 CSS 文件
-    if (styles.trim()) {
-      files.push({
-        path: '/src/style.css',
-        content: styles
-      });
+        // 如果有样式，创建 CSS 文件
+        if (styles.trim()) {
+            files.push({
+                path: "/src/style.css",
+                content: styles,
+            });
+        }
+
+        // 如果有脚本，创建 JS 文件
+        if (scripts.trim()) {
+            files.push({
+                path: "/src/main.js",
+                content: scripts,
+            });
+        }
+
+        return {
+            files,
+            dependencies: {
+                react: "^19.0.0",
+                "react-dom": "^19.0.0",
+            },
+            scripts: {
+                dev: "vite",
+                build: "vite build",
+                preview: "vite preview",
+            },
+        };
     }
 
-    // 如果有脚本，创建 JS 文件
-    if (scripts.trim()) {
-      files.push({
-        path: '/src/main.js',
-        content: scripts
-      });
+    /**
+     * 销毁 WebContainer
+     */
+    async destroy(): Promise<void> {
+        if (this.container) {
+            await this.container.teardown();
+            this.container = null;
+        }
+
+        if (this.iframe && this.iframe.parentNode) {
+            this.iframe.parentNode.removeChild(this.iframe);
+            this.iframe = null;
+        }
+
+        this.isReady = false;
     }
 
-    return {
-      files,
-      dependencies: {
-        'react': '^19.0.0',
-        'react-dom': '^19.0.0'
-      },
-      scripts: {
-        dev: 'vite',
-        build: 'vite build',
-        preview: 'vite preview'
-      }
-    };
-  }
-
-  /**
-   * 销毁 WebContainer
-   */
-  async destroy(): Promise<void> {
-    if (this.container) {
-      await this.container.teardown();
-      this.container = null;
+    /**
+     * 获取当前状态
+     */
+    getStatus(): {
+        isReady: boolean;
+        hasContainer: boolean;
+        hasIframe: boolean;
+    } {
+        return {
+            isReady: this.isReady,
+            hasContainer: !!this.container,
+            hasIframe: !!this.iframe,
+        };
     }
-
-    if (this.iframe && this.iframe.parentNode) {
-      this.iframe.parentNode.removeChild(this.iframe);
-      this.iframe = null;
-    }
-
-    this.isReady = false;
-  }
-
-  /**
-   * 获取当前状态
-   */
-  getStatus(): { isReady: boolean; hasContainer: boolean; hasIframe: boolean } {
-    return {
-      isReady: this.isReady,
-      hasContainer: !!this.container,
-      hasIframe: !!this.iframe
-    };
-  }
 }

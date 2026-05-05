@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock修复验证</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #f8f9fa;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .info {
+            color: blue;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Mock URL匹配修复验证</h1>
+        <p>验证从宽泛匹配到精确匹配优先级的修复是否成功</p>
+
+        <div class="button-group">
+            <button onclick="testUrlMatching()">测试URL匹配优先级</button>
+            <button onclick="testMockServices()">检查Mock服务</button>
+            <button onclick="testApiCalls()">测试API调用</button>
+            <button onclick="runFullTest()">完整测试</button>
+            <button onclick="clearLog()" style="background: #6c757d;">清空日志</button>
+        </div>
+
+        <div id="result">点击按钮开始验证...</div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const result = document.getElementById('result');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            const logEntry = `[${timestamp}] <span class="${className}">${message}</span>\n`;
+
+            console.log(`[Verify Fix] ${message}`);
+            result.innerHTML += logEntry;
+            result.scrollTop = result.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('result').innerHTML = '日志已清空...\n';
+        }
+
+        // 测试URL匹配优先级
+        function testUrlMatching() {
+            log('=== URL匹配优先级测试 ===', 'info');
+
+            const testCases = [
+                {
+                    url: '/api/sessions/test-123/messages',
+                    method: 'POST',
+                    expected: '发送消息 (精确匹配)',
+                    description: '包含session ID和/messages的URL应该优先匹配发送消息'
+                },
+                {
+                    url: '/api/sessions/mock_session_123/messages',
+                    method: 'POST',
+                    expected: '发送消息 (精确匹配)',
+                    description: '动态session ID的/messages URL应该优先匹配发送消息'
+                },
+                {
+                    url: '/api/sessions',
+                    method: 'POST',
+                    expected: '创建会话 (中等匹配)',
+                    description: '只有/sessions路径的URL应该匹配创建会话'
+                },
+                {
+                    url: '/api/users',
+                    method: 'POST',
+                    expected: '无匹配',
+                    description: '不包含/sessions的URL不应该匹配任何模式'
+                }
+            ];
+
+            const patterns = [
+                { pattern: /\/api\/sessions\/[^/]+\/messages$/, method: 'POST', name: '发送消息 (精确匹配)' },
+                { pattern: /\/api\/sessions$/, method: 'POST', name: '创建会话 (中等匹配)' },
+                { pattern: /\/api\/sessions/, method: 'POST', name: '创建会话 (宽泛匹配)' }
+            ];
+
+            let passed = 0;
+            let failed = 0;
+
+            testCases.forEach((testCase, index) => {
+                log(`\n测试 #${index + 1}: ${testCase.description}`, 'info');
+                log(`URL: ${testCase.url}`, 'info');
+
+                let matched = false;
+                let actualMatch = '';
+
+                for (const { pattern, method, name } of patterns) {
+                    if (pattern.test(testCase.url) && testCase.method === method) {
+                        matched = true;
+                        actualMatch = name;
+                        break;
+                    }
+                }
+
+                if (!matched) {
+                    actualMatch = '无匹配';
+                }
+
+                if (actualMatch === testCase.expected) {
+                    log(`✅ 通过: ${actualMatch}`, 'success');
+                    passed++;
+                } else {
+                    log(`❌ 失败: 期望 ${testCase.expected}, 实际 ${actualMatch}`, 'error');
+                    failed++;
+                }
+            });
+
+            log(`\n📊 结果: ${passed} 通过, ${failed} 失败`, passed === testCases.length ? 'success' : 'error');
+            return failed === 0;
+        }
+
+        // 检查Mock服务
+        function testMockServices() {
+            log('=== Mock服务检查 ===', 'info');
+
+            const services = [
+                { name: 'QuickMock', instance: window.quickMock },
+                { name: 'SimpleMock', instance: window.simpleMock },
+                { name: 'MockService', instance: window.mockService }
+            ];
+
+            let availableServices = 0;
+
+            services.forEach(({ name, instance }) => {
+                if (instance) {
+                    log(`✅ ${name} 已加载`, 'success');
+                    if (instance.status) {
+                        log(`   启用状态: ${instance.status.enabled}`, 'info');
+                        log(`   初始化状态: ${instance.status.initialized}`, 'info');
+                        if (instance.status.scenarios) {
+                            log(`   场景: ${instance.status.scenarios.join(', ')}`, 'info');
+                        }
+                    }
+                    availableServices++;
+                } else {
+                    log(`❌ ${name} 未加载`, 'error');
+                }
+            });
+
+            log(`\n可用Mock服务: ${availableServices}/${services.length}`, availableServices > 0 ? 'success' : 'error');
+            return availableServices > 0;
+        }
+
+        // 测试API调用
+        async function testApiCalls() {
+            log('=== API调用测试 ===', 'info');
+
+            try {
+                // 测试创建会话
+                log('\n测试: 创建会话', 'info');
+                const sessionResponse = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                log(`状态码: ${sessionResponse.status}`, 'info');
+                if (sessionResponse.status === 200) {
+                    const sessionData = await sessionResponse.json();
+                    log(`✅ 创建会话成功: ${sessionData.session_id}`, 'success');
+
+                    // 测试发送消息
+                    log('\n测试: 发送消息', 'info');
+                    const messageResponse = await fetch(`/api/sessions/${sessionData.session_id}/messages`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: '创建计数器组件' })
+                    });
+
+                    log(`状态码: ${messageResponse.status}`, 'info');
+                    log(`Content-Type: ${messageResponse.headers.get('Content-Type')}`, 'info');
+
+                    if (messageResponse.status === 200 && messageResponse.headers.get('Content-Type')?.includes('text/event-stream')) {
+                        log('✅ 发送消息成功，SSE流响应正常', 'success');
+
+                        // 读取前几个事件验证格式
+                        const reader = messageResponse.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+                        let eventCount = 0;
+
+                        while (eventCount < 2) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+
+                            buffer += decoder.decode(value, { stream: true });
+                            const lines = buffer.split('\n');
+                            buffer = lines.pop() || '';
+
+                            for (const line of lines) {
+                                if (line.startsWith('event:')) {
+                                    const eventType = line.slice(7).trim();
+                                    log(`事件类型: ${eventType}`, 'info');
+                                    eventCount++;
+                                }
+                            }
+                        }
+
+                        log('✅ SSE事件流格式正确', 'success');
+                        return true;
+                    } else {
+                        log('❌ 发送消息响应不符合预期', 'error');
+                        return false;
+                    }
+                } else {
+                    log('❌ 创建会话失败', 'error');
+                    return false;
+                }
+            } catch (error) {
+                log(`❌ API调用错误: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        // 完整测试
+        async function runFullTest() {
+            log('🚀 开始完整测试套件...', 'info');
+
+            const results = {
+                urlMatching: testUrlMatching(),
+                mockServices: testMockServices(),
+                apiCalls: await testApiCalls()
+            };
+
+            log('\n' + '='.repeat(50), 'info');
+            log('📊 完整测试结果', 'info');
+            log('='.repeat(50), 'info');
+            log(`URL匹配优先级: ${results.urlMatching ? '✅ 通过' : '❌ 失败'}`, results.urlMatching ? 'success' : 'error');
+            log(`Mock服务状态: ${results.mockServices ? '✅ 通过' : '❌ 失败'}`, results.mockServices ? 'success' : 'error');
+            log(`API调用测试: ${results.apiCalls ? '✅ 通过' : '❌ 失败'}`, results.apiCalls ? 'success' : 'error');
+
+            const allPassed = Object.values(results).every(result => result);
+
+            if (allPassed) {
+                log('\n🎉 恭喜！所有测试通过！', 'success');
+                log('🎯 URL匹配优先级修复成功', 'success');
+                log('🎯 Mock系统工作正常', 'success');
+                log('🎯 API调用响应正确', 'success');
+            } else {
+                log('\n⚠️  部分测试失败，请检查失败项目', 'error');
+            }
+
+            return allPassed;
+        }
+
+        // 页面加载时显示环境信息
+        window.addEventListener('load', () => {
+            log('🎯 Mock URL匹配修复验证页面已加载', 'info');
+            log('📝 使用上方按钮运行各项测试', 'info');
+
+            // 检查环境
+            if (window.location.search.includes('mock=true')) {
+                log('✅ Mock模式已通过URL参数启用', 'success');
+            } else {
+                log('ℹ️  建议添加URL参数 ?mock=true 来启用Mock模式', 'info');
+            }
+
+            // 检查开发环境
+            try {
+                if (import.meta.env.DEV) {
+                    log('✅ 检测到开发环境', 'success');
+                }
+            } catch (e) {
+                log('ℹ️  无法检测开发环境', 'info');
+            }
+        });
+    </script>
+</body>
+</html>

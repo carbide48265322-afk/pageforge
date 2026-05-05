@@ -1,4 +1,4 @@
-from typing import TypedDict, Optional, List
+from typing import TypedDict, Optional, List, Dict
 
 
 class AgentState(TypedDict):
@@ -29,3 +29,13 @@ class AgentState(TypedDict):
     install_status: Optional[str]       # installing / done / failed
     dev_server_url: Optional[str]       # 预览 URL
     ui_style: Optional[str]             # minimal / vibrant / dark / glassmorphism
+    intent: Optional[str]               # 意图类型
+    confidence: Optional[float]         # 意图置信度
+    tags: Optional[List[str]]           # 技术标签
+    mode: Optional[str]                 # frontend / backend / fullstack
+    complexity: Optional[str]           # simple / medium / complex
+    model_strategy: Optional[Dict[str, str]]  # 智能路由策略 {node_name: model_tier}
+    thought_summary: Optional[str]     # 思考摘要
+    plan_steps: Optional[List[dict]]   # 计划步骤
+    ui_style_config: Optional[str]     # 风格配置文本
+    status: Optional[str]             # 狀態標識

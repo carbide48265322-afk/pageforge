@@ -1,1 +1,94 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --color-pageforge-primary: #000000;
+  --color-pageforge-primary-hover: #1a1a1a;
+  --color-pageforge-secondary: #6b7280;
+  --color-pageforge-muted: #9ca3af;
+  --color-pageforge-border: #e5e7eb;
+  --color-pageforge-border-dark: #d1d5db;
+  --color-pageforge-bg: #ffffff;
+  --color-pageforge-bg-secondary: #f9fafb;
+  --color-pageforge-accent: #3b82f6;
+  --color-pageforge-accent-hover: #2563eb;
+  --color-pageforge-success: #10b981;
+  --color-pageforge-warning: #f59e0b;
+  --color-pageforge-error: #ef4444;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-pageforge-bg);
+    color: var(--color-pageforge-primary);
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .font-body {
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+
+  .transition-smooth {
+    transition-property: all;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-pageforge-border) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--color-pageforge-border);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-pageforge-border-dark);
+  }
+
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

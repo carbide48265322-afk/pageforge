@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock系统最终测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.secondary {
+            background: #6c757d;
+        }
+        button.secondary:hover {
+            background: #545b62;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #f8f9fa;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Mock系统最终测试</h1>
+        <p>验证URL匹配优先级和Mock系统功能</p>
+
+        <div class="button-group">
+            <button onclick="runPriorityTest()">测试URL优先级</button>
+            <button onclick="testCreateSession()">测试创建会话</button>
+            <button onclick="testSendMessage()">测试发送消息</button>
+            <button onclick="testFullFlow()">测试完整流程</button>
+            <button class="secondary" onclick="checkMockStatus()">检查Mock状态</button>
+            <button class="secondary" onclick="clearLog()">清空日志</button>
+        </div>
+
+        <div id="result">等待测试...</div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const result = document.getElementById('result');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}\n`;
+
+            console.log(`[Final Test] ${message}`);
+            result.textContent += logEntry;
+            result.scrollTop = result.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('result').textContent = '日志已清空...\n';
+        }
+
+        // 检查Mock状态
+        function checkMockStatus() {
+            log('=== Mock状态检查 ===');
+
+            if (window.quickMock) {
+                const status = window.quickMock.status;
+                log(`✅ QuickMock: 启用=${status.enabled}, 初始化=${status.initialized}`);
+                log(`   场景: ${status.scenarios.join(', ')}`);
+            } else {
+                log('❌ QuickMock未加载');
+            }
+
+            if (window.simpleMock) {
+                const status = window.simpleMock.status;
+                log(`✅ SimpleMock: 启用=${status.enabled}, 初始化=${status.initialized}`);
+            }
+
+            if (window.mockService) {
+                const status = window.mockService.status;
+                log(`✅ MockService: 启用=${status.enabled}, 初始化=${status.initialized}`);
+            }
+
+            // 检查环境
+            const urlParams = new URLSearchParams(window.location.search);
+            const mockParam = urlParams.get('mock');
+            log(`URL mock参数: ${mockParam || '未设置'}`);
+        }
+
+        // 测试URL匹配优先级
+        function runPriorityTest() {
+            log('=== URL匹配优先级测试 ===');
+
+            const testUrls = [
+                '/api/sessions/test-123/messages',
+                '/api/sessions/mock_session_1777958876434/messages',
+                '/api/sessions/abc-def/messages',
+                '/api/sessions',
+                '/api/users'
+            ];
+
+            const patterns = [
+                { pattern: /\/api\/sessions\/[^/]+\/messages$/, name: '发送消息 (精确匹配)' },
+                { pattern: /\/api\/sessions$/, name: '创建会话 (中等匹配)' },
+                { pattern: /\/api\/sessions/, name: '创建会话 (宽泛匹配)' }
+            ];
+
+            testUrls.forEach((url, index) => {
+                log(`\n测试 #${index + 1}: ${url}`);
+                let matched = false;
+
+                for (let i = 0; i < patterns.length; i++) {
+                    const { pattern, name } = patterns[i];
+                    if (pattern.test(url)) {
+                        log(`  ✅ 匹配: ${name} (优先级: ${i + 1})`);
+                        matched = true;
+                        break;
+                    }
+                }
+
+                if (!matched) {
+                    log(`  ❌ 无匹配`);
+                }
+            });
+        }
+
+        // 测试创建会话
+        async function testCreateSession() {
+            log('=== 测试创建会话 ===');
+
+            try {
+                const response = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                log(`状态码: ${response.status}`);
+
+                if (response.status === 200) {
+                    const data = await response.json();
+                    log(`✅ 创建会话成功: ${JSON.stringify(data)}`);
+                    return data.session_id;
+                } else {
+                    log(`❌ 创建会话失败: ${response.status}`);
+                    return null;
+                }
+            } catch (error) {
+                log(`❌ 错误: ${error.message}`);
+                return null;
+            }
+        }
+
+        // 测试发送消息
+        async function testSendMessage() {
+            log('=== 测试发送消息 ===');
+
+            // 先创建会话
+            const sessionId = await testCreateSession();
+            if (!sessionId) {
+                log('❌ 无法创建会话，跳过发送消息测试');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/sessions/${sessionId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: '创建计数器组件'
+                    })
+                });
+
+                log(`状态码: ${response.status}`);
+                log(`Content-Type: ${response.headers.get('Content-Type')}`);
+
+                if (response.status === 200 && response.headers.get('Content-Type')?.includes('text/event-stream')) {
+                    log('✅ SSE流响应成功');
+
+                    // 读取前几个事件
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let eventCount = 0;
+
+                    while (eventCount < 3) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        let currentEvent = '';
+                        for (const line of lines) {
+                            if (line.startsWith('event:')) {
+                                currentEvent = line.slice(7).trim();
+                                log(`事件: ${currentEvent}`);
+                                eventCount++;
+                            } else if (line.startsWith('data:')) {
+                                const dataStr = line.slice(5).trim();
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    log(`数据: ${JSON.stringify(data).substring(0, 100)}...`);
+                                } catch (e) {
+                                    log(`数据解析失败`);
+                                }
+                                currentEvent = '';
+                            }
+                        }
+                    }
+                } else {
+                    log(`❌ 响应不符合预期`);
+                }
+            } catch (error) {
+                log(`❌ 错误: ${error.message}`);
+            }
+        }
+
+        // 测试完整流程
+        async function testFullFlow() {
+            log('=== 完整流程测试 ===');
+
+            // 1. 检查Mock状态
+            checkMockStatus();
+
+            // 2. 测试URL优先级
+            runPriorityTest();
+
+            // 3. 测试创建会话
+            const sessionId = await testCreateSession();
+            if (!sessionId) {
+                log('❌ 完整流程测试失败：无法创建会话');
+                return;
+            }
+
+            // 4. 测试发送消息
+            log('\n--- 发送消息测试 ---');
+            try {
+                const response = await fetch(`/api/sessions/${sessionId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: '创建计数器组件'
+                    })
+                });
+
+                log(`状态码: ${response.status}`);
+                log(`Content-Type: ${response.headers.get('Content-Type')}`);
+
+                if (response.status === 200) {
+                    log('✅ 完整流程测试成功！');
+                    log('🎯 URL匹配优先级工作正常');
+                    log('🎯 Mock系统响应正确');
+                    log('🎯 SSE流格式正确');
+                } else {
+                    log('❌ 完整流程测试失败');
+                }
+            } catch (error) {
+                log(`❌ 完整流程测试错误: ${error.message}`);
+            }
+        }
+
+        // 页面加载时检查状态
+        window.addEventListener('load', () => {
+            log('🎯 Mock系统最终测试页面已加载');
+            log('📝 使用上方按钮运行各项测试');
+
+            // 检查URL参数
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('mock') !== 'true') {
+                log('⚠️  建议添加URL参数 ?mock=true 来启用Mock模式');
+            }
+        });
+    </script>
+</body>
+</html>

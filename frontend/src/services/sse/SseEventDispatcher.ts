@@ -10,47 +10,7 @@
  * 2. POST 模式（fetch + 流读取）：解析 SSE 行，从 data.type 分发
  */
 
-import type { ThinkingBlock, PlanBlock, ToolCallBlock, FileNode, IntentResult, StyleConfig, TextBlock, CommandOutput } from './types';
 import { parseSSELine, parseSSEMessage } from './utils/parseEvent';
-import { thinkingHandler } from './handlers/thinkingHandler';
-import { planHandler } from './handlers/planHandler';
-import { toolCallHandler } from './handlers/toolCallHandler';
-import { fileEventHandler } from './handlers/fileEventHandler';
-import { statusHandler } from './handlers/statusHandler';
-import { intentHandler } from './handlers/intentHandler';
-import { styleHandler } from './handlers/styleHandler';
-import { textHandler } from './handlers/textHandler';
-import { commandOutputHandler } from './handlers/commandOutputHandler';
-
-// data.type → handler 映射表（注册制，新增事件只需加一行）
-const HANDLER_MAP: Record<string, (data: unknown) => void> = {
-  'thinking_start': thinkingHandler.onStart,
-  'thinking_delta': thinkingHandler.onDelta,
-  'thinking_end': thinkingHandler.onEnd,
-  'plan_start': planHandler.onStart,
-  'plan_update': planHandler.onUpdate,
-  'plan_done': planHandler.onDone,
-  'tool_call:start': toolCallHandler.onStart,
-  'tool_call:end': toolCallHandler.onEnd,
-  'file_created': fileEventHandler.onCreate,
-  'file_updated': fileEventHandler.onUpdate,
-  'file_deleted': fileEventHandler.onDelete,
-  'status:init': statusHandler.onInit,
-  'status:installing': statusHandler.onInstalling,
-  'status:install_done': statusHandler.onInstallDone,
-  'status:generation_done': statusHandler.onGenerationDone,
-  'status:starting_dev': statusHandler.onStartingDev,
-  'status:preview_ready': statusHandler.onPreviewReady,
-  'intent:start': intentHandler.onStart,
-  'intent:result': intentHandler.onResult,
-  'intent:style_query': intentHandler.onStyleQuery,
-  'intent:style_selected': intentHandler.onStyleSelected,
-  'style_selected': styleHandler.onSelected,
-  'text_delta': textHandler.onDelta,
-  'text_done': textHandler.onDone,
-  'command_output': commandOutputHandler.onOutput,
-  'error': (data: unknown) => console.error('SSE Error:', data),
-};
 
 export class SseEventDispatcher {
   private eventSource: EventSource | null = null;
@@ -218,22 +178,9 @@ export class SseEventDispatcher {
   }
 
   /**
-   * 处理 SSE 事件（共享逻辑）
+   * 处理 SSE 事件：通知所有订阅者
    */
   private handleSSEEvent(eventName: string, data: unknown): void {
-    // 1. 路由到对应的 handler
-    const handler = HANDLER_MAP[eventName];
-    if (handler) {
-      try {
-        handler(data);
-      } catch (err) {
-        console.error(`Handler error for event ${eventName}:`, err);
-      }
-    } else {
-      console.warn(`No handler registered for event: ${eventName}`);
-    }
-
-    // 2. 通知所有订阅者
     const subscribers = this.listeners.get(eventName);
     if (subscribers) {
       subscribers.forEach(cb => {

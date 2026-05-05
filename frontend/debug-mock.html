@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock调试页面</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .log {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mock系统调试页面</h1>
+
+    <div>
+        <button class="btn" onclick="testMockStatus()">检查Mock状态</button>
+        <button class="btn" onclick="testApiCall()">测试API调用</button>
+        <button class="btn" onclick="testSSEStream()">测试SSE流</button>
+        <button class="btn" onclick="enableMock()">启用Mock</button>
+        <button class="btn" onclick="disableMock()">禁用Mock</button>
+    </div>
+
+    <div>
+        <h3>日志输出:</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function testMockStatus() {
+            log('=== 检查Mock状态 ===');
+
+            if (window.simpleMock) {
+                const status = window.simpleMock.status;
+                log(`Mock服务状态: ${JSON.stringify(status, null, 2)}`);
+            } else {
+                log('❌ simpleMock服务未找到');
+            }
+
+            if (window.mockService) {
+                const status = window.mockService.status;
+                log(`完整版Mock服务状态: ${JSON.stringify(status, null, 2)}`);
+            } else {
+                log('❌ 完整版mockService未找到');
+            }
+
+            // 检查环境变量
+            try {
+                log(`VITE_MOCK_MODE: ${import.meta.env.VITE_MOCK_MODE}`);
+                log(`开发环境: ${import.meta.env.DEV}`);
+            } catch (e) {
+                log('无法访问环境变量');
+            }
+
+            // 检查URL参数
+            const urlParams = new URLSearchParams(window.location.search);
+            log(`URL mock参数: ${urlParams.get('mock')}`);
+        }
+
+        function testApiCall() {
+            log('=== 测试API调用 ===');
+
+            fetch('/api/sessions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => {
+                log(`API响应状态: ${response.status}`);
+                log(`Content-Type: ${response.headers.get('Content-Type')}`);
+                return response.json();
+            })
+            .then(data => {
+                log(`API响应数据: ${JSON.stringify(data)}`);
+            })
+            .catch(error => {
+                log(`❌ API调用失败: ${error.message}`);
+            });
+        }
+
+        function testSSEStream() {
+            log('=== 测试SSE流 ===');
+
+            fetch('/api/sessions/test/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message: '创建计数器组件'
+                })
+            })
+            .then(async response => {
+                log(`SSE响应状态: ${response.status}`);
+                log(`SSE Content-Type: ${response.headers.get('Content-Type')}`);
+
+                if (!response.body) {
+                    log('❌ 响应没有body');
+                    return;
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let eventCount = 0;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        log('SSE流结束');
+                        break;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    let currentEvent = '';
+                    for (const line of lines) {
+                        if (line.startsWith('event:')) {
+                            currentEvent = line.slice(7).trim();
+                            log(`收到事件: ${currentEvent}`);
+                        } else if (line.startsWith('data:')) {
+                            const dataStr = line.slice(5).trim();
+                            try {
+                                const data = JSON.parse(dataStr);
+                                eventCount++;
+                                log(`事件数据: ${JSON.stringify(data).substring(0, 100)}...`);
+                            } catch (e) {
+                                log(`数据解析失败: ${dataStr}`);
+                            }
+                            currentEvent = '';
+                        }
+                    }
+
+                    if (eventCount >= 5) { // 只读取前5个事件
+                        log('已达到事件数量限制，停止读取');
+                        break;
+                    }
+                }
+            })
+            .catch(error => {
+                log(`❌ SSE测试失败: ${error.message}`);
+            });
+        }
+
+        function enableMock() {
+            if (window.simpleMock) {
+                window.simpleMock.enable();
+                log('✅ 已启用Mock模式');
+                testMockStatus();
+            } else {
+                log('❌ Mock服务未找到');
+            }
+        }
+
+        function disableMock() {
+            if (window.simpleMock) {
+                window.simpleMock.disable();
+                log('✅ 已禁用Mock模式');
+                testMockStatus();
+            } else {
+                log('❌ Mock服务未找到');
+            }
+        }
+
+        // 页面加载时自动检查状态
+        window.addEventListener('load', () => {
+            log('=== Mock调试页面加载完成 ===');
+            testMockStatus();
+        });
+    </script>
+</body>
+</html>
